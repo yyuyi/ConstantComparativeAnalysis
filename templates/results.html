@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent Analysis Status</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>Agent Analysis Status</h1>
+      <p>Run ID: <code>{{ run_id }}</code></p>
+      <div id="log" class="log"></div>
+      <div id="downloads" style="display:none;">
+        <h2>Generated Files</h2>
+        <ul id="file-list"></ul>
+        <p>Written under: <code>{{ output_dir }}</code></p>
+      </div>
+      <p><a href="{{ url_for('index') }}">&#8592; Back</a></p>
+    </main>
+    <script>
+      const runId = {{ run_id|tojson }};
+      const logEl = document.getElementById('log');
+      const dlEl = document.getElementById('downloads');
+      const listEl = document.getElementById('file-list');
+      let done = false;
+      async function poll() {
+        try {
+          const res = await fetch({{ url_for('progress', run_id='__RUN__')|tojson }}.replace('__RUN__', runId));
+          const data = await res.json();
+          logEl.textContent = (data.lines || []).join('\n');
+          if (data.complete && !done) {
+            done = true;
+            dlEl.style.display = '';
+            listEl.innerHTML = '';
+            (data.files || []).forEach(fn => {
+              const li = document.createElement('li');
+              const a = document.createElement('a');
+              a.href = {{ url_for('download', run_id='__RUN__', filename='__FN__')|tojson }}.replace('__RUN__', runId).replace('__FN__', fn);
+              a.textContent = fn;
+              li.appendChild(a);
+              listEl.appendChild(li);
+            });
+          }
+        } catch (e) {}
+        if (!done) setTimeout(poll, 1200);
+      }
+      poll();
+    </script>
+  </body>
+  </html>
+

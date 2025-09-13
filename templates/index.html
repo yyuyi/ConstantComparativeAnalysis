@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Grounded-Theory Agent App</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <main class="container">
+      <header>
+        <h1>Grounded-Theory Coding (Agent Mode)</h1>
+        <p class="lede">A minimal academic-style interface for multi-coder grounded-theory analysis with agent orchestration.</p>
+      </header>
+      <form action="{{ url_for('start') }}" method="post" enctype="multipart/form-data" class="grid">
+        <label>
+          OpenAI API Key
+          <input type="password" name="openai_api_key" placeholder="sk-..." />
+          <small>Used for this run only. Not stored.</small>
+        </label>
+
+        <label>
+          Study Background
+          <textarea name="study_background" rows="4" required placeholder="Describe the study context and objectives..."></textarea>
+          <small>One to three paragraphs describing context, aims, and key constructs.</small>
+        </label>
+
+        <label>
+          Transcripts (.txt, .pdf, .doc, .docx)
+          <input type="file" name="transcripts" accept=".txt,.pdf,.doc,.docx" multiple required />
+          <small>Upload one .txt per interview or focus group.</small>
+        </label>
+
+        <label>
+          Coders
+          <input type="number" name="coders" min="1" value="2" />
+        </label>
+
+        <fieldset>
+          <legend>Analysis Mode</legend>
+          <label><input type="radio" name="analysis_mode" value="classic" checked /> Classic</label>
+          <label><input type="radio" name="analysis_mode" value="interpretive" /> Interpretive</label>
+          <label><input type="radio" name="analysis_mode" value="constructionist" /> Constructionist</label>
+          <small>
+            Classic: no framework. Interpretive: framework suggestive. Constructionist: framework mandatory.
+          </small>
+        </fieldset>
+
+        <label id="tf-wrapper" style="display:none;">
+          Theoretical Framework (optional)
+          <input type="text" name="theoretical_framework" placeholder="e.g., Activity Theory, Social Constructionism" />
+          <small>Required for Interpretive and Constructionist modes.</small>
+        </label>
+
+        <label>
+          <input type="checkbox" name="cac_enabled" /> Enable CAC reasoning
+          <small>Condition–Action–Consequence emphasis when possible.</small>
+        </label>
+
+        <label>
+          Max Categories
+          <input type="number" name="max_categories" min="1" value="{{ default_max_categories }}" />
+          <small>Upper bound per coder during axial coding.</small>
+        </label>
+
+        <label>
+          Segment Length (tokens)
+          <input type="number" name="segment_length" min="50" value="{{ default_segment_len }}" />
+          <small>Approximate token budget per segment.</small>
+        </label>
+
+        <label>
+          Model
+          <select name="model">
+            {% for m in model_options %}
+              <option value="{{ m }}" {% if m == default_model %}selected{% endif %}>{{ m }}</option>
+            {% endfor %}
+          </select>
+          <small>Higher-capability models may yield better analytic quality.</small>
+        </label>
+
+        <button type="submit">Run Agent Analysis</button>
+      </form>
+    </main>
+    <script>
+      function updateTFVisibility() {
+        const mode = document.querySelector('input[name="analysis_mode"]:checked')?.value;
+        const wrapper = document.getElementById('tf-wrapper');
+        if (mode === 'interpretive' || mode === 'constructionist') {
+          wrapper.style.display = '';
+        } else {
+          wrapper.style.display = 'none';
+          const input = wrapper.querySelector('input[name="theoretical_framework"]');
+          if (input) input.value='';
+        }
+      }
+      document.querySelectorAll('input[name="analysis_mode"]').forEach(el => el.addEventListener('change', updateTFVisibility));
+      updateTFVisibility();
+    </script>
+  </body>
+  </html>
