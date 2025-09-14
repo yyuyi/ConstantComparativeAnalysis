@@ -1,4 +1,4 @@
-DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_MODEL = "gpt-5-mini"
 MODEL_OPTIONS = [
     "gpt-5",
     "gpt-5-mini",
