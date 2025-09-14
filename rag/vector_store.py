@@ -9,7 +9,7 @@ from chromadb.utils import embedding_functions
 
 
 class VectorIndex:
-    def __init__(self, *, api_key: str | None, embed_model: str = "text-embedding-3-large") -> None:
+    def __init__(self, *, api_key: str | None, embed_model: str = "text-embedding-3-small") -> None:
         if api_key:
             os.environ["OPENAI_API_KEY"] = api_key
         self.client = chromadb.Client()

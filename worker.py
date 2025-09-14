@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 from datetime import datetime
+import time
 
 # Ensure the current directory is on sys.path so absolute imports work on platforms like Render
 BASE_DIR = Path(__file__).resolve().parent
@@ -170,6 +171,7 @@ def run_job(run_dir: Path) -> None:
         _log(run_dir, f"[{coder_id}] Axial coding...")
         cats: List[Dict[str, Any]] = []
         for attempt in range(2):
+            t0 = time.time()
             cats = run_axial_coding(
                 sdk=sdk,
                 open_codes=oc,
@@ -178,34 +180,38 @@ def run_job(run_dir: Path) -> None:
                 analysis_mode=analysis_mode,
                 theoretical_framework=theoretical_framework,
                 attempts=1,
-                timeout_s=75.0,
+                timeout_s=120.0,
             )
+            _log(run_dir, f"[{coder_id}] Axial response in {time.time()-t0:.2f}s; categories={len(cats) if cats else 0}.")
             if cats and all(c.get("name") for c in cats):
                 break
             _log(run_dir, f"[{coder_id}] Retrying axial coding (attempt {attempt + 2})...")
-        # RAG + LLM: attach quotes by querying the vector index, then ask model to extract 1–3 verbatim quotes
-        def _extract_quotes_for_category(name: str, description: str, contexts: List[str]) -> List[str]:
-            QUOTES_SCHEMA = "{\"quotes\": [str]}"
+        # RAG + LLM (batched): attach quotes by querying the vector index once per category, then batch extract
+        QUOTES_BATCH_SCHEMA = "{\"quotes_by_category\": [{\"index\": int, \"quotes\": [str]}]}"
+        payload_items = []
+        for idx, cat in enumerate(cats):
+            query = (cat.get("name", "") or "") + "\n\n" + (cat.get("description", "") or "")
+            results = vindex.query(text=query, k=getattr(_cfg, 'RAG_K_DEFAULT', 2))
+            contexts = [t for (t, m) in results if t and t.strip()]
+            payload_items.append({
+                "index": idx,
+                "category": {"name": cat.get("name", ""), "description": cat.get("description", "")},
+                "contexts": contexts,
+            })
+        if payload_items:
             system = (
                 "You extract short, faithful quotes for grounded-theory categories. "
-                "Given a category name and description, and several transcript contexts, return 1–3 quotes (each 1–3 sentences) that are VERBATIM substrings of the provided contexts. "
+                "Given category names/descriptions and several transcript contexts per category, return 1–3 quotes (each 1–3 sentences) per category that are VERBATIM substrings of the provided contexts. "
                 "Prefer interviewee speech; exclude interviewer prompts. JSON only."
             )
-            user = json.dumps({
-                "category": {"name": name, "description": description},
-                "contexts": contexts,
-                "schema": QUOTES_SCHEMA,
-            }, ensure_ascii=False)
-            data = sdk.run_json(system, user, schema_hint=QUOTES_SCHEMA, attempts=1, timeout_s=60.0)
-            quotes = [str(q).strip() for q in (data.get("quotes") or []) if str(q).strip()]
-            return quotes[:3]
-
-        for cat in cats:
-            query = (cat.get("name", "") or "") + "\n\n" + (cat.get("description", "") or "")
-            from . import config as _cfg
-            results = vindex.query(text=query, k=getattr(_cfg, 'RAG_K_DEFAULT', 3))
-            contexts = [t for (t, m) in results if t and t.strip()]
-            cat["supporting_quotes"] = _extract_quotes_for_category(cat.get("name", ""), cat.get("description", ""), contexts)
+            user = json.dumps({"items": payload_items, "schema": QUOTES_BATCH_SCHEMA}, ensure_ascii=False)
+            t0 = time.time()
+            data = sdk.run_json(system, user, schema_hint=QUOTES_BATCH_SCHEMA, attempts=1, timeout_s=120.0)
+            _log(run_dir, f"[{coder_id}] Quote batch response in {time.time()-t0:.2f}s.")
+            by_cat = {int(row.get("index", -1)): [str(q).strip() for q in (row.get("quotes") or []) if str(q).strip()] for row in (data.get("quotes_by_category") or [])}
+            for idx, cat in enumerate(cats):
+                qlist = (by_cat.get(idx) or [])[:3]
+                cat["supporting_quotes"] = qlist
         write_json_txt(run_dir, f"axial_coding_{coder_id}.txt", {"coder": coder_id, "categories": cats})
 
         _log(run_dir, f"[{coder_id}] Selective coding...")

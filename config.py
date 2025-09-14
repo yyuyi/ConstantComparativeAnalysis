@@ -10,4 +10,5 @@ MODEL_OPTIONS = [
 SEGMENT_LENGTH_DEFAULT = 500
 MAX_CATEGORIES_DEFAULT = 5
 OUTPUT_DIR = "generated"
-RAG_K_DEFAULT = 3
+# RAG retrieval top-k for category-to-quote matching
+RAG_K_DEFAULT = 2
