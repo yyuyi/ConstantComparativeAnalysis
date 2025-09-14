@@ -5,13 +5,27 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 from datetime import datetime
 
-from . import config
-from .rag.vector_store import VectorIndex
-from .agents.sdk import AgentSDK
-from .agents.coder_agent import run_open_coding, run_axial_coding, run_selective_coding
-from .agents.synth_agent import synthesize_categories, synthesize_core_story, synthesize_open_codes
-from .agents.stats_agent import build_summary
-from .agents.tools import write_json_txt, build_segment_maps
+# Make imports work whether this file is imported as part of a package (relative)
+# or as a top-level module (absolute)
+try:
+    from . import config  # package import
+    from .rag.vector_store import VectorIndex
+    from .agents.sdk import AgentSDK
+    from .agents.coder_agent import run_open_coding, run_axial_coding, run_selective_coding
+    from .agents.synth_agent import synthesize_categories, synthesize_core_story, synthesize_open_codes
+    from .agents.stats_agent import build_summary
+    from .agents.tools import write_json_txt, build_segment_maps
+except ImportError:
+    import config  # top-level import
+    from rag.vector_store import VectorIndex
+    from agents.sdk import AgentSDK
+    from agents.coder_agent import run_open_coding, run_axial_coding, run_selective_coding
+    from agents.synth_agent import synthesize_categories, synthesize_core_story, synthesize_open_codes
+    from agents.stats_agent import build_summary
+    from agents.tools import write_json_txt, build_segment_maps
+
+# If you reference _cfg later, create an alias now so both paths share it
+_cfg = config
 
 
 def _log(run_dir: Path, msg: str) -> None:

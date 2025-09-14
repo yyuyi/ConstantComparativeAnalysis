@@ -10,8 +10,18 @@ import threading
 
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory
 
-from . import config
-from .worker import run_job
+# make config import work both as a package import and as a top-level module
+try:
+    from . import config           # works if app.py is imported as part of a package
+except ImportError:
+    import config                  # works if app.py is run/imported as a top-level module
+
+# same idea for worker
+try:
+    from .worker import run_job
+except ImportError:
+    from worker import run_job
+
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 
