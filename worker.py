@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 from datetime import datetime
 
-# Make imports work whether this file is imported as part of a package (relative)
-# or as a top-level module (absolute)
+# Ensure the current directory is on sys.path so absolute imports work on platforms like Render
+BASE_DIR = Path(__file__).resolve().parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
+# Make imports work whether this file is imported as part of a package (relative) or top-level
 try:
     from . import config  # package import
     from .rag.vector_store import VectorIndex
@@ -15,8 +20,11 @@ try:
     from .agents.synth_agent import synthesize_categories, synthesize_core_story, synthesize_open_codes
     from .agents.stats_agent import build_summary
     from .agents.tools import write_json_txt, build_segment_maps
-except ImportError:
-    import config  # top-level import
+except Exception:
+    try:
+        import config  # top-level import
+    except Exception:
+        import configure as config  # optional alias if renamed
     from rag.vector_store import VectorIndex
     from agents.sdk import AgentSDK
     from agents.coder_agent import run_open_coding, run_axial_coding, run_selective_coding

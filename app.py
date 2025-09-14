@@ -9,17 +9,24 @@ from typing import Any, Dict, List
 import threading
 
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory
+import sys
 
-# make config import work both as a package import and as a top-level module
+# Make imports work both as package and as top-level module (Render/Gunicorn)
+BASE_DIR = Path(__file__).resolve().parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
 try:
-    from . import config           # works if app.py is imported as part of a package
-except ImportError:
-    import config                  # works if app.py is run/imported as a top-level module
+    from . import config  # package import
+except Exception:
+    try:
+        import config     # top-level
+    except Exception:
+        import configure as config  # optional alias
 
-# same idea for worker
 try:
     from .worker import run_job
-except ImportError:
+except Exception:
     from worker import run_job
 
 
