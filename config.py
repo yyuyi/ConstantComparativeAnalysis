@@ -2,10 +2,12 @@ DEFAULT_MODEL = "gpt-4o-mini"
 MODEL_OPTIONS = [
     "gpt-5",
     "gpt-5-mini",
-    "gpt-4o",
-    "gpt-4o-mini",
+    "gpt-5-nano",
     "gpt-4.1",
     "gpt-4.1-mini",
+    "gpt-4.1-nano",
+    "gpt-4o",
+    "gpt-4o-mini",
 ]
 SEGMENT_LENGTH_DEFAULT = 500
 MAX_CATEGORIES_DEFAULT = 5
