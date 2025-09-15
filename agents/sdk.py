@@ -17,13 +17,6 @@ class AgentSDK:
         self.model = model
         # Load API key from arg, env, or fallback file
         key = api_key or os.getenv("OPENAI_API_KEY")
-        if not key:
-            try:
-                key_path = Path("instructions/openai_api_key.txt")
-                if key_path.exists():
-                    key = key_path.read_text(encoding="utf-8").strip()
-            except Exception:
-                key = None
         if key:
             os.environ["OPENAI_API_KEY"] = key
         self._client = None

@@ -7,95 +7,199 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
   </head>
   <body>
+    
     <main class="container">
       <header>
         <h1>Grounded-Theory Coding (Agent Mode)</h1>
-        <p class="lede">A minimal academic-style interface for multi-coder grounded-theory analysis with agent orchestration.</p>
+        <p class="lede">Automate Grounded-Theory Analysis with Agentic AI.</p>
       </header>
-      <form action="{{ url_for('start') }}" method="post" enctype="multipart/form-data" class="grid">
-        <label>
-          OpenAI API Key
-          <input type="password" name="openai_api_key" placeholder="sk-..." />
-          <small>Used for this run only. Not stored.</small>
-        </label>
+      <form id="run_form" action="{{ url_for('start') }}" method="post" enctype="multipart/form-data" class="grid">
+        <details class="panel" id="run-panel" open>
+          <summary><span>Run Settings</span><span class="caret">▾</span></summary>
+          <div class="panel-content">
+          <div class="field">
+            <label for="openai_api_key">OpenAI API Key</label>
+            <input type="password" id="openai_api_key" name="openai_api_key" placeholder="sk-..." required />
+            <div class="help">Required to run this analysis.</div>
+          </div>
+          <div class="field">
+            <label for="transcripts">Transcripts (.txt, .pdf, .docx)</label>
+            <input type="file" id="transcripts" name="transcripts" accept=".txt,.pdf,.docx" multiple required />
+            <div class="help">Upload one file per interview or focus group.</div>
+          </div>
+          <div class="field">
+            <label for="coders">Coders</label>
+            <input type="number" id="coders" name="coders" min="1" value="2" />
+          </div>
+          <div class="field">
+            <label>Analysis Mode</label>
+            <div>
+              <label><input type="radio" name="analysis_mode" value="classic" checked /> Classic</label>
+              <label style="margin-left:12px;"><input type="radio" name="analysis_mode" value="interpretive" /> Interpretive</label>
+              <label style="margin-left:12px;"><input type="radio" name="analysis_mode" value="constructionist" /> Constructionist</label>
+            </div>
+            <div class="help">Classic: no framework. Interpretive: framework suggestive. Constructionist: framework required.</div>
+          </div>
+          <div id="tf-inline" style="display:none;">
+            <div class="field">
+              <label for="theoretical_framework">Theoretical Framework</label>
+              <textarea id="theoretical_framework" name="theoretical_framework" placeholder="e.g., Activity Theory, Social Constructionism"></textarea>
+            </div>
+            <div class="actions">
+              <button type="button" class="btn" id="refine_tf_btn">Revise</button>
+              <button type="button" class="btn secondary" id="revert_tf_btn" disabled>Revert</button>
+              <span id="status_tf" class="status"></span>
+            </div>
+          </div>
+          <div class="field">
+            <label><input type="checkbox" name="cac_enabled" /> Enable CAC reasoning</label>
+            <div class="help">Emphasize Condition–Action–Consequence relationships when possible.</div>
+          </div>
+          <div class="field">
+            <label>Categories</label>
+            <div class="actions" style="margin-top:0;">
+              <label><input type="checkbox" name="auto_categories" id="auto_categories" checked /> Auto-determine</label>
+              <input type="number" name="max_categories" id="max_categories" min="1" placeholder="Max (optional)" style="max-width: 140px; margin-left: 8px;" />
+            </div>
+            <div class="help">Leave Auto on to let the agent choose a data-driven number. If provided, the agent produces ≤ this number.</div>
+          </div>
+          <div class="field">
+            <label for="segment_length">Segment Length (tokens)</label>
+            <input type="number" id="segment_length" name="segment_length" min="50" value="{{ default_segment_len }}" />
+            <div class="help">Approximate token budget per segment.</div>
+          </div>
+          <div class="field">
+            <label for="model">Model</label>
+            <select id="model" name="model">
+              {% for m in model_options %}
+                <option value="{{ m }}" {% if m == default_model %}selected{% endif %}>{{ m }}</option>
+              {% endfor %}
+            </select>
+            <div class="help">Higher-capability models may yield better analytic quality.</div>
+          </div>
+          </div>
+        </details>
 
-        <label>
-          Study Background
-          <textarea name="study_background" rows="4" required placeholder="Describe the study context and objectives..."></textarea>
-          <small>One to three paragraphs describing context, aims, and key constructs.</small>
-        </label>
+        <details class="panel" id="bg-panel" open>
+          <summary>
+            <span>Study Background</span>
+            <span class="caret">▾</span>
+          </summary>
+          <div class="panel-content">
+            <div class="field">
+              <label for="study_background">Context and objectives</label>
+              <textarea id="study_background" name="study_background" required placeholder="Describe the study context, aims, and key constructs..."></textarea>
+            </div>
+            <div class="actions">
+              <button type="button" class="btn" id="refine_bg_btn">Revise</button>
+              <button type="button" class="btn secondary" id="revert_bg_btn" disabled>Revert</button>
+              <span id="status_bg" class="status"></span>
+            </div>
+          </div>
+        </details>
 
-        <label>
-          Transcripts (.txt, .pdf, .doc, .docx)
-          <input type="file" name="transcripts" accept=".txt,.pdf,.doc,.docx" multiple required />
-          <small>Upload one .txt per interview or focus group.</small>
-        </label>
-
-        <label>
-          Coders
-          <input type="number" name="coders" min="1" value="2" />
-        </label>
-
-        <fieldset>
-          <legend>Analysis Mode</legend>
-          <label><input type="radio" name="analysis_mode" value="classic" checked /> Classic</label>
-          <label><input type="radio" name="analysis_mode" value="interpretive" /> Interpretive</label>
-          <label><input type="radio" name="analysis_mode" value="constructionist" /> Constructionist</label>
-          <small>
-            Classic: no framework. Interpretive: framework suggestive. Constructionist: framework mandatory.
-          </small>
-        </fieldset>
-
-        <label id="tf-wrapper" style="display:none;">
-          Theoretical Framework (optional)
-          <input type="text" name="theoretical_framework" placeholder="e.g., Activity Theory, Social Constructionism" />
-          <small>Required for Interpretive and Constructionist modes.</small>
-        </label>
-
-        <label>
-          <input type="checkbox" name="cac_enabled" /> Enable CAC reasoning
-          <small>Condition–Action–Consequence emphasis when possible.</small>
-        </label>
-
-        <label>
-          Max Categories
-          <input type="number" name="max_categories" min="1" value="{{ default_max_categories }}" />
-          <small>Upper bound per coder during axial coding.</small>
-        </label>
-
-        <label>
-          Segment Length (tokens)
-          <input type="number" name="segment_length" min="50" value="{{ default_segment_len }}" />
-          <small>Approximate token budget per segment.</small>
-        </label>
-
-        <label>
-          Model
-          <select name="model">
-            {% for m in model_options %}
-              <option value="{{ m }}" {% if m == default_model %}selected{% endif %}>{{ m }}</option>
-            {% endfor %}
-          </select>
-          <small>Higher-capability models may yield better analytic quality.</small>
-        </label>
-
-        <button type="submit">Run Agent Analysis</button>
+        <div class="panel" style="grid-column: 1 / -1; display:flex; justify-content:flex-end;">
+          <button type="submit" class="btn">Run Agent Analysis</button>
+        </div>
       </form>
     </main>
     <script>
       function updateTFVisibility() {
         const mode = document.querySelector('input[name="analysis_mode"]:checked')?.value;
-        const wrapper = document.getElementById('tf-wrapper');
+        const tfInline = document.getElementById('tf-inline');
+        if (!tfInline) return;
         if (mode === 'interpretive' || mode === 'constructionist') {
-          wrapper.style.display = '';
+          tfInline.style.display = '';
         } else {
-          wrapper.style.display = 'none';
-          const input = wrapper.querySelector('input[name="theoretical_framework"]');
+          tfInline.style.display = 'none';
+          const input = document.getElementById('theoretical_framework');
           if (input) input.value='';
         }
       }
+      function updateMaxCatState() {
+        const auto = document.getElementById('auto_categories');
+        const num = document.getElementById('max_categories');
+        if (auto && num) {
+          num.disabled = auto.checked;
+          if (auto.checked) num.value = '';
+        }
+      }
       document.querySelectorAll('input[name="analysis_mode"]').forEach(el => el.addEventListener('change', updateTFVisibility));
+      const autoEl = document.getElementById('auto_categories');
+      if (autoEl) autoEl.addEventListener('change', updateMaxCatState);
       updateTFVisibility();
+      updateMaxCatState();
+
+      const snapshots = { bg: null, tf: null };
+      async function refineField(kind) {
+        const mode = document.querySelector('input[name="analysis_mode"]:checked')?.value || 'classic';
+        const key = document.getElementById('openai_api_key').value || '';
+        const sbEl = document.getElementById('study_background');
+        const tfEl = document.getElementById('theoretical_framework');
+        const statusEl = document.getElementById(kind === 'bg' ? 'status_bg' : 'status_tf');
+        const revertBtn = document.getElementById(kind === 'bg' ? 'revert_bg_btn' : 'revert_tf_btn');
+        const refineBtn = document.getElementById(kind === 'bg' ? 'refine_bg_btn' : 'refine_tf_btn');
+        const sb = sbEl.value;
+        const tf = tfEl ? tfEl.value : '';
+        statusEl.textContent = 'Refining…';
+        const panel = document.getElementById(kind === 'bg' ? 'bg-panel' : 'run-panel');
+        if (panel) panel.classList.add('loading');
+        refineBtn.disabled = true;
+        try {
+          const res = await fetch({{ url_for('refine')|tojson }}, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ study_background: sb, theoretical_framework: tf, analysis_mode: mode, openai_api_key: key })
+          });
+          const data = await res.json();
+          if (!data.ok) { statusEl.textContent = 'Refine failed: ' + (data.error || 'Unknown'); return; }
+          if (kind === 'bg') {
+            if (!snapshots.bg) snapshots.bg = sb;
+            if (data.study_background) sbEl.value = data.study_background;
+          } else {
+            if (!snapshots.tf) snapshots.tf = tf;
+            if (tfEl && (data.theoretical_framework !== undefined)) tfEl.value = data.theoretical_framework;
+          }
+          revertBtn.disabled = false;
+          statusEl.textContent = 'Refined. You can edit or revert.';
+        } catch (e) {
+          statusEl.textContent = 'Refine failed.';
+        } finally {
+          refineBtn.disabled = false;
+          if (panel) panel.classList.remove('loading');
+        }
+      }
+      function revertField(kind) {
+        const statusEl = document.getElementById(kind === 'bg' ? 'status_bg' : 'status_tf');
+        const revertBtn = document.getElementById(kind === 'bg' ? 'revert_bg_btn' : 'revert_tf_btn');
+        if (kind === 'bg') {
+          if (!snapshots.bg) { statusEl.textContent = 'Nothing to revert.'; return; }
+          document.getElementById('study_background').value = snapshots.bg; snapshots.bg = null;
+        } else {
+          if (!snapshots.tf) { statusEl.textContent = 'Nothing to revert.'; return; }
+          const tfEl = document.getElementById('theoretical_framework');
+          if (tfEl) tfEl.value = snapshots.tf; snapshots.tf = null;
+        }
+        revertBtn.disabled = true;
+        statusEl.textContent = 'Reverted to original.';
+      }
+      document.getElementById('refine_bg_btn').addEventListener('click', () => refineField('bg'));
+      document.getElementById('revert_bg_btn').addEventListener('click', () => revertField('bg'));
+      const rtf = document.getElementById('refine_tf_btn');
+      const revtf = document.getElementById('revert_tf_btn');
+      if (rtf) rtf.addEventListener('click', () => refineField('tf'));
+      if (revtf) revtf.addEventListener('click', () => revertField('tf'));
+
+      // Block submit if API key is missing
+      const form = document.getElementById('run_form');
+      if (form) {
+        form.addEventListener('submit', (e) => {
+          const key = document.getElementById('openai_api_key')?.value || '';
+          if (!key.trim()) {
+            e.preventDefault();
+            alert('Please enter your OpenAI API key to run the analysis.');
+          }
+        });
+      }
     </script>
   </body>
   </html>

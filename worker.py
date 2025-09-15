@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 from datetime import datetime
 import time
+import re
 
 # Ensure the current directory is on sys.path so absolute imports work on platforms like Render
 BASE_DIR = Path(__file__).resolve().parent
@@ -19,7 +20,7 @@ try:
     from .agents.sdk import AgentSDK
     from .agents.coder_agent import run_open_coding, run_axial_coding, run_selective_coding
     from .agents.synth_agent import synthesize_categories, synthesize_core_story, synthesize_open_codes
-    from .agents.stats_agent import build_summary
+    # from .agents.stats_agent import build_summary
     from .agents.tools import write_json_txt, build_segment_maps
 except Exception:
     try:
@@ -30,7 +31,7 @@ except Exception:
     from agents.sdk import AgentSDK
     from agents.coder_agent import run_open_coding, run_axial_coding, run_selective_coding
     from agents.synth_agent import synthesize_categories, synthesize_core_story, synthesize_open_codes
-    from agents.stats_agent import build_summary
+    # from agents.stats_agent import build_summary
     from agents.tools import write_json_txt, build_segment_maps
 
 # If you reference _cfg later, create an alias now so both paths share it
@@ -58,14 +59,13 @@ def run_job(run_dir: Path) -> None:
     model = params.get("model", config.DEFAULT_MODEL)
     api_key = params.get("api_key") or None
 
-    # Fallback to key file if UI provided none
+    # Require API key from UI or environment (no file fallback)
     if not api_key:
-        try:
-            kf = Path("instructions/openai_api_key.txt")
-            if kf.exists():
-                api_key = kf.read_text(encoding="utf-8").strip()
-        except Exception:
-            api_key = None
+        api_key = os.getenv("OPENAI_API_KEY") or None
+    if not api_key:
+        _log(run_dir, "Error: Missing OpenAI API key. Aborting run.")
+        (run_dir / "result.json").write_text(json.dumps({"files": [], "error": "Missing OpenAI API key"}, ensure_ascii=False, indent=2), encoding="utf-8")
+        return
     sdk = AgentSDK(model=model, api_key=api_key)
     _log(run_dir, f"Agent SDK initialized | model={model} | key_present={'yes' if api_key else 'no'}")
 
@@ -90,9 +90,12 @@ def run_job(run_dir: Path) -> None:
     study_background = (inputs_dir / "study_background.txt").read_text(encoding="utf-8")
     theoretical_framework = (inputs_dir / "theoretical_framework.txt").read_text(encoding="utf-8")
 
+    # No refinement here; if the user used the refine preview, the posted text is already refined.
+
     # Load transcripts and segment
     all_segments: List[Dict[str, Any]] = []
-    per_tx_info: List[Dict[str, Any]] = []
+    # per_tx_info no longer used
+    transcript_raw: Dict[str, str] = {}
     _log(run_dir, "Loading, chunking, and indexing transcripts...")
     vindex = VectorIndex(api_key=api_key)
     def _read_text(path: Path) -> str:
@@ -127,11 +130,44 @@ def run_job(run_dir: Path) -> None:
         base = Path(name).stem
         segs = vindex.add_transcript(name=name, raw_text=raw_text, segment_len_tokens=segment_len)
         write_json_txt(run_dir, f"segments_{base}.txt", {"transcript": name, "segments": {str(s["segment_number"]): s["text"] for s in segs}})
-        per_tx_info.append({"display_name": name, "name": name, "segments": segs})
         all_segments.extend(segs)
+        transcript_raw[name] = raw_text
 
     # Build segment maps (raw text only; coder agents decide interviewee vs interviewer)
     by_key_map, _ = build_segment_maps(all_segments)
+
+    # Build comprehensive per-transcript summaries (multi-paragraph) for use in axial and selective coding (obligatory)
+    transcript_summaries: Dict[str, str] = {}
+    try:
+        try:
+            from .agents.coder_agent import summarize_transcript  # package import
+        except Exception:
+            from agents.coder_agent import summarize_transcript  # top-level import
+        _log(run_dir, "Generating comprehensive transcript summaries...")
+        for name, text in transcript_raw.items():
+            if (text or "").strip():
+                summary = summarize_transcript(sdk=sdk, transcript_name=name, text=text, attempts=1, timeout_s=120.0)
+                transcript_summaries[name] = summary
+            else:
+                transcript_summaries[name] = ""
+    except Exception as e:
+        _log(run_dir, f"Warning: transcript summaries failed: {e}")
+        transcript_summaries = {name: "" for name in transcript_raw.keys()}
+
+    def _trim_to_sentences(text: str, max_sentences: int = 3) -> str:
+        if not isinstance(text, str):
+            return ""
+        t = text.strip()
+        if not t:
+            return t
+        # Find sentence enders (., !, ?) optionally followed by quotes/brackets and whitespace or EOS
+        enders = list(re.finditer(r"[.!?](?=[\)\]\"'”’]*\s|$)", t))
+        if not enders:
+            return t
+        if len(enders) <= max_sentences:
+            return t
+        cut = enders[max_sentences - 1].end()
+        return t[:cut].strip()
 
     # Per-coder analysis agents
     per_coder_open: List[List[Dict[str, Any]]] = []
@@ -156,15 +192,44 @@ def run_job(run_dir: Path) -> None:
             if oc_blocks and any((b.get("codes") for b in oc_blocks)):
                 break
             _log(run_dir, f"[{coder_id}] Retrying open coding (attempt {attempt + 2})...")
-        # normalize to list of {code, transcript, segment_number}
+        # normalize to list of {code, transcript, segment_number, sample_quote?}
         oc: List[Dict[str, Any]] = []
         for block in oc_blocks:
-            for code in (block.get("codes") or [])[:3]:
+            codes_field = (block.get("codes") or [])
+            for citem in codes_field[:3]:
+                if isinstance(citem, dict):
+                    code_text = str(citem.get("code", "")).strip()
+                    # Prefer span-based extraction
+                    span = citem.get("span") or {}
+                    try:
+                        s = int(span.get("start")) if span is not None else None
+                        e = int(span.get("end")) if span is not None else None
+                    except Exception:
+                        s = e = None
+                    sample_quote = None
+                else:
+                    code_text = str(citem).strip()
+                    sample_quote = None
+                seg_num = block.get("segment_number")
+                tx = block.get("transcript")
+                # Build sample_quote directly from span indices (if provided and valid)
+                if (tx, seg_num) in by_key_map:
+                    raw = by_key_map[(tx, int(seg_num))]["raw"]
+                    if 's' in locals() and 'e' in locals() and isinstance(s, int) and isinstance(e, int):
+                        if 0 <= s < e <= len(raw):
+                            sample_quote = raw[s:e]
+                            # Ensure at most a few sentences; adjust end index accordingly
+                            trimmed = _trim_to_sentences(sample_quote, 3)
+                            if trimmed and trimmed != sample_quote:
+                                sample_quote = trimmed
+                                e = s + len(trimmed)
                 oc.append({
-                    "code": str(code).strip(),
-                    "segment_number": block.get("segment_number"),
+                    "code": code_text,
+                    "segment_number": seg_num,
                     "coder": coder_id,
-                    "transcript": block.get("transcript"),
+                    "transcript": tx,
+                    **({"sample_quote": sample_quote} if sample_quote else {}),
+                    **({"span": [s, e]} if 's' in locals() and 'e' in locals() and isinstance(s, int) and isinstance(e, int) else {}),
                 })
         write_json_txt(run_dir, f"open_coding_{coder_id}.txt", {"coder": coder_id, "open_codes": oc})
 
@@ -179,6 +244,7 @@ def run_job(run_dir: Path) -> None:
                 study_background=study_background,
                 analysis_mode=analysis_mode,
                 theoretical_framework=theoretical_framework,
+                transcript_summaries=transcript_summaries,
                 attempts=1,
                 timeout_s=120.0,
             )
@@ -211,7 +277,7 @@ def run_job(run_dir: Path) -> None:
             by_cat = {int(row.get("index", -1)): [str(q).strip() for q in (row.get("quotes") or []) if str(q).strip()] for row in (data.get("quotes_by_category") or [])}
             for idx, cat in enumerate(cats):
                 qlist = (by_cat.get(idx) or [])[:3]
-                cat["supporting_quotes"] = qlist
+                cat["supporting_quotes"] = [q for q in ([_trim_to_sentences(q, 3) for q in qlist] if qlist else []) if q and q.strip()]
         write_json_txt(run_dir, f"axial_coding_{coder_id}.txt", {"coder": coder_id, "categories": cats})
 
         _log(run_dir, f"[{coder_id}] Selective coding...")
@@ -224,6 +290,7 @@ def run_job(run_dir: Path) -> None:
                 study_background=study_background,
                 analysis_mode=analysis_mode,
                 theoretical_framework=theoretical_framework,
+                transcript_summaries=transcript_summaries,
                 attempts=1,
                 timeout_s=75.0,
             )
@@ -297,14 +364,6 @@ def run_job(run_dir: Path) -> None:
             "open_codes": len((open_synth.get("open_codes") or [])),
             "categories": len(merged_categories),
             "core_story": 1 if (merged_core.get("core_story") or "").strip() else 0,
-        }
-        params_out = {
-            "coders": coders,
-            "analysis_mode": analysis_mode,
-            "cac_enabled": cac_enabled,
-            "max_categories": max_categories,
-            "segment_length": segment_len,
-            "model": model,
         }
         # Deterministic summary (nothing more than required fields)
         mode_val = analysis_mode

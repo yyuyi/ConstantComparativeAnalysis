@@ -5,10 +5,10 @@ import json
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import List
 import threading
 
-from flask import Flask, render_template, request, redirect, url_for, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, send_from_directory, jsonify
 import sys
 
 # Make imports work both as package and as top-level module (Render/Gunicorn)
@@ -59,7 +59,12 @@ def start() -> str:
     analysis_mode = request.form.get("analysis_mode", "classic").strip()
     theoretical_framework = request.form.get("theoretical_framework", "").strip()
     cac_enabled = request.form.get("cac_enabled") == "on"
-    max_categories = _safe_int(request.form.get("max_categories"), config.MAX_CATEGORIES_DEFAULT)
+    # Max categories: allow auto (no limit) if checkbox set or value <= 0
+    auto_categories = request.form.get("auto_categories") == "on"
+    if auto_categories:
+        max_categories = 0
+    else:
+        max_categories = _safe_int(request.form.get("max_categories"), config.MAX_CATEGORIES_DEFAULT)
     segment_len = _safe_int(request.form.get("segment_length"), config.SEGMENT_LENGTH_DEFAULT)
     model = request.form.get("model", config.DEFAULT_MODEL).strip()
     api_key = request.form.get("openai_api_key", "").strip()
@@ -78,11 +83,17 @@ def start() -> str:
     (inputs_dir / "theoretical_framework.txt").write_text(theoretical_framework, encoding="utf-8")
 
     uploads: List[str] = []
+    allowed_exts = {".txt", ".pdf", ".docx"}
     for file in request.files.getlist("transcripts"):
         if file and file.filename:
-            safe = Path(file.filename).stem
+            p = Path(file.filename)
+            safe = p.stem
+            ext = p.suffix.lower()
+            if ext not in allowed_exts:
+                # Skip unsupported formats (.doc etc.)
+                continue
             safe = "".join(ch if ch.isalnum() or ch in ("-", "_", ".") else "-" for ch in safe).strip("-") or "file"
-            fname = f"{safe}.txt"
+            fname = f"{safe}{ext}"
             (transcripts_dir / fname).write_bytes(file.read())
             uploads.append(fname)
 
@@ -91,6 +102,7 @@ def start() -> str:
         "analysis_mode": analysis_mode,
         "cac_enabled": cac_enabled,
         "max_categories": max_categories,
+        "auto_categories": auto_categories,
         "segment_length": segment_len,
         "model": model,
         "api_key": api_key,
@@ -100,6 +112,40 @@ def start() -> str:
 
     threading.Thread(target=run_job, args=(run_dir,), daemon=True).start()
     return redirect(url_for("status", run_id=run_id))
+
+
+@app.route("/refine", methods=["POST"])
+def refine():
+    """Refine background/framework; return refined text so the user can review/edit before running."""
+    try:
+        payload = request.get_json(force=True) or {}
+        study_background = (payload.get("study_background") or "").strip()
+        theoretical_framework = (payload.get("theoretical_framework") or "").strip()
+        analysis_mode = (payload.get("analysis_mode") or "classic").strip()
+        api_key = (payload.get("openai_api_key") or "").strip()
+        if not api_key:
+            return jsonify({"ok": False, "error": "OPENAI_API_KEY is required for refinement."}), 400
+
+        # Initialize SDK + refine function
+        try:
+            from .agents.sdk import AgentSDK
+            from .agents.coder_agent import refine_context as _refine
+        except Exception:
+            from agents.sdk import AgentSDK
+            from agents.coder_agent import refine_context as _refine
+
+        sdk = AgentSDK(model=config.DEFAULT_MODEL, api_key=api_key)
+        out = _refine(
+            sdk=sdk,
+            study_background=study_background,
+            theoretical_framework=theoretical_framework,
+            analysis_mode=analysis_mode,
+            attempts=1,
+            timeout_s=45.0,
+        )
+        return jsonify({"ok": True, **out})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
 
 
 @app.route("/status/<run_id>")

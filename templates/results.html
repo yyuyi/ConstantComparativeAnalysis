@@ -7,16 +7,22 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
   </head>
   <body>
+    
     <main class="container">
-      <h1>Agent Analysis Status</h1>
-      <p>Run ID: <code>{{ run_id }}</code></p>
-      <div id="log" class="log"></div>
-      <div id="downloads" style="display:none;">
-        <h2>Generated Files</h2>
+      <header>
+        <h1>Analysis Status</h1>
+        <p class="lede">Run ID: <code>{{ run_id }}</code></p>
+      </header>
+      <section class="panel">
+        <h3>Progress Log</h3>
+        <div id="log" class="log"></div>
+      </section>
+      <section class="panel downloads" id="downloads" style="display:none;">
+        <h3>Generated Files</h3>
         <ul id="file-list"></ul>
-        <p>Written under: <code>{{ output_dir }}</code></p>
-      </div>
-      <p><a href="{{ url_for('index') }}">&#8592; Back</a></p>
+        <div class="help">Written under: <code>{{ output_dir }}</code></div>
+      </section>
+      <div style="margin-top:10px;"><a href="{{ url_for('index') }}">&#8592; Back</a></div>
     </main>
     <script>
       const runId = {{ run_id|tojson }};
@@ -24,11 +30,17 @@
       const dlEl = document.getElementById('downloads');
       const listEl = document.getElementById('file-list');
       let done = false;
+      // Apply skeleton while loading
+      logEl.classList.add('skeleton');
       async function poll() {
         try {
           const res = await fetch({{ url_for('progress', run_id='__RUN__')|tojson }}.replace('__RUN__', runId));
           const data = await res.json();
-          logEl.textContent = (data.lines || []).join('\n');
+          const lines = data.lines || [];
+          if (lines.length) {
+            logEl.classList.remove('skeleton');
+          }
+          logEl.textContent = lines.join('\n');
           if (data.complete && !done) {
             done = true;
             dlEl.style.display = '';
@@ -49,4 +61,3 @@
     </script>
   </body>
   </html>
-
