@@ -71,18 +71,31 @@ def run_job(run_dir: Path) -> None:
     _log(run_dir, f"Agent SDK initialized | model={model} | key_present={'yes' if api_key else 'no'}")
 
     # Connectivity sanity check
-    ping = sdk.run_json(
-        system="You are a JSON responder.",
-        user=json.dumps({"instruction": "Return ONLY {\"ok\": true} as a JSON object."}),
-        schema_hint="{\"ok\": bool}",
-        attempts=1,
-    )
-    if not (isinstance(ping, dict) and ping.get("ok") is True):
+    # Lightweight connectivity sanity check; tolerate transient backend errors
+    ping_ok = False
+    ping_error: str | None = None
+    for attempt in range(2):
+        ping = sdk.run_json(
+            system="You are a JSON responder.",
+            user=json.dumps({"instruction": "Return ONLY {\"ok\": true} as a JSON object."}),
+            schema_hint="{\"ok\": bool}",
+            attempts=1,
+        )
+        if isinstance(ping, dict) and ping.get("ok") is True:
+            ping_ok = True
+            break
         diag = sdk.diagnostics()
-        if diag.get("last_error"):
-            _log(run_dir, f"Warning: Agent call failed: {diag['last_error']}")
+        ping_error = diag.get("last_error")
+        # Retry once on transient server errors (HTTP 500)
+        if ping_error and "Error code: 500" in ping_error and attempt == 0:
+            time.sleep(1.0)
+            continue
+        break
+    if not ping_ok:
+        if ping_error:
+            _log(run_dir, f"Agent connectivity check warning (non-blocking): {ping_error}")
         else:
-            _log(run_dir, "Warning: Agent call returned empty/invalid JSON.")
+            _log(run_dir, "Agent connectivity check warning (non-blocking): empty/invalid JSON response.")
 
     inputs_dir = run_dir / "inputs"
     transcripts_dir = inputs_dir / "transcripts"
