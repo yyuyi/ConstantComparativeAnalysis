@@ -193,27 +193,31 @@ def run_job(run_dir: Path) -> None:
             if oc_blocks and any((b.get("codes") for b in oc_blocks)):
                 break
             _log(run_dir, f"[{coder_id}] Retrying open coding (attempt {attempt + 2})...")
-        # normalize to list of {code, transcript, segment_number, sample_quote?, quotes?}
+        # normalize to list of {code, transcript, segment_number, sample_quote?}
         oc: List[Dict[str, Any]] = []
         for block in oc_blocks:
             codes_field = (block.get("codes") or [])
             for citem in codes_field[:3]:
                 if isinstance(citem, dict):
                     code_text = str(citem.get("code", "")).strip()
-                    quotes_list = [str(q).strip() for q in (citem.get("quotes") or []) if str(q).strip()]
+                    sample_quote = str(citem.get("sample_quote", "")).strip()
+                    quotes_list = [str(q).strip() for q in (citem.get("quotes") or []) if str(q).strip()] if not sample_quote else []
                 else:
                     code_text = str(citem).strip()
                     quotes_list = []
                 seg_num = block.get("segment_number")
                 tx = block.get("transcript")
-                sample_quote = quotes_list[0] if quotes_list else None
+                if isinstance(citem, dict):
+                    if not sample_quote and quotes_list:
+                        sample_quote = quotes_list[0]
+                else:
+                    sample_quote = quotes_list[0] if quotes_list else None
                 oc.append({
                     "code": code_text,
                     "segment_number": seg_num,
                     "coder": coder_id,
                     "transcript": tx,
                     **({"sample_quote": sample_quote} if sample_quote else {}),
-                    **({"quotes": quotes_list} if quotes_list else {}),
                 })
         write_json_txt(run_dir, f"open_coding_{coder_id}.txt", {"coder": coder_id, "open_codes": oc})
 
