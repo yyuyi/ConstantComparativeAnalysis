@@ -4,7 +4,7 @@ An agent‑based grounded‑theory analysis tool with per‑coder agents and an 
 
 ## Features
 - Multi‑coder pipeline: open → axial → selective coding per coder
-- Open coding: per‑code verbatim sample quote via character spans (0‑based, end‑exclusive)
+- Open coding: per-code verbatim quotes returned directly by the LLM (1–2 sentences each)
 - Axial coding: RAG‑sourced quotes (1–3 sentences) added in a single batched call
 - Summaries: comprehensive per‑transcript summaries inform axial and selective coding
 - Categories: Auto mode (default) or cap to ≤ N
@@ -24,7 +24,7 @@ An agent‑based grounded‑theory analysis tool with per‑coder agents and an 
 ## How It Works
 - Segmentation: LangChain `RecursiveCharacterTextSplitter` (default ~500 tokens per segment).
 - Vector DB: in‑memory ChromaDB with OpenAI `text-embedding-3-small`. Retrieval `k` is fixed (`config.RAG_K_DEFAULT`).
-- Open coding: returns 1–3 codes per segment. For each code, the agent returns `{span: {start, end}}`; the app slices the exact substring as `sample_quote` and trims to ≤ 3 sentences.
+- Open coding: returns 1–3 codes per segment. For each code, the agent also returns 1–2 verbatim quotes (sentences copied directly from the segment text). The app records them and uses the first quote as `sample_quote` for context.
 - Axial coding: clusters codes into categories with names/descriptions and members `{transcript, segment_number}`; RAG attaches 1–3 quotes per category (trimmed to ≤ 3 sentences). No quotes are passed to the axial prompt itself.
 - Selective coding: multi‑paragraph core story (CAC‑aware when enabled), using only category quotes and summaries as background.
 - Integration: merges open codes (simple list), categories, and a unified core story.
@@ -32,7 +32,7 @@ An agent‑based grounded‑theory analysis tool with per‑coder agents and an 
 
 ## Outputs
 - Per transcript: `segments_<transcript>.txt`
-- Per coder: `open_coding_<coder>.txt` (includes `sample_quote` and `span`), `axial_coding_<coder>.txt`, `selective_coding_<coder>.txt`
+- Per coder: `open_coding_<coder>.txt` (includes `sample_quote` plus `quotes` array), `axial_coding_<coder>.txt`, `selective_coding_<coder>.txt`
 - Integrated: `integrated_open_codes.txt` `{ "open_codes": [str] }`, `integrated_categories.txt`, `integrated_core_story.txt`
 - Summary: `analysis_summary.txt`
 

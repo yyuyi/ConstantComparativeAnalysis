@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List
@@ -192,44 +193,27 @@ def run_job(run_dir: Path) -> None:
             if oc_blocks and any((b.get("codes") for b in oc_blocks)):
                 break
             _log(run_dir, f"[{coder_id}] Retrying open coding (attempt {attempt + 2})...")
-        # normalize to list of {code, transcript, segment_number, sample_quote?}
+        # normalize to list of {code, transcript, segment_number, sample_quote?, quotes?}
         oc: List[Dict[str, Any]] = []
         for block in oc_blocks:
             codes_field = (block.get("codes") or [])
             for citem in codes_field[:3]:
                 if isinstance(citem, dict):
                     code_text = str(citem.get("code", "")).strip()
-                    # Prefer span-based extraction
-                    span = citem.get("span") or {}
-                    try:
-                        s = int(span.get("start")) if span is not None else None
-                        e = int(span.get("end")) if span is not None else None
-                    except Exception:
-                        s = e = None
-                    sample_quote = None
+                    quotes_list = [str(q).strip() for q in (citem.get("quotes") or []) if str(q).strip()]
                 else:
                     code_text = str(citem).strip()
-                    sample_quote = None
+                    quotes_list = []
                 seg_num = block.get("segment_number")
                 tx = block.get("transcript")
-                # Build sample_quote directly from span indices (if provided and valid)
-                if (tx, seg_num) in by_key_map:
-                    raw = by_key_map[(tx, int(seg_num))]["raw"]
-                    if 's' in locals() and 'e' in locals() and isinstance(s, int) and isinstance(e, int):
-                        if 0 <= s < e <= len(raw):
-                            sample_quote = raw[s:e]
-                            # Ensure at most a few sentences; adjust end index accordingly
-                            trimmed = _trim_to_sentences(sample_quote, 3)
-                            if trimmed and trimmed != sample_quote:
-                                sample_quote = trimmed
-                                e = s + len(trimmed)
+                sample_quote = quotes_list[0] if quotes_list else None
                 oc.append({
                     "code": code_text,
                     "segment_number": seg_num,
                     "coder": coder_id,
                     "transcript": tx,
                     **({"sample_quote": sample_quote} if sample_quote else {}),
-                    **({"span": [s, e]} if 's' in locals() and 'e' in locals() and isinstance(s, int) and isinstance(e, int) else {}),
+                    **({"quotes": quotes_list} if quotes_list else {}),
                 })
         write_json_txt(run_dir, f"open_coding_{coder_id}.txt", {"coder": coder_id, "open_codes": oc})
 

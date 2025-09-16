@@ -4,11 +4,12 @@ import json
 from typing import Any, Dict, List, Tuple, Optional
 
 
-# Open coding now requests character spans for quotes per code; we will slice the exact substring server-side.
+# Open coding returns per-code quotes supplied directly by the model (1–2 sentences each).
 OPEN_SCHEMA = (
     "{\"open_codes\": ["
     "{\"transcript\": str, \"segment_number\": int, \"codes\": ["
-    "{\"code\": str, \"span\": {\"start\": int, \"end\": int}}]}]}"
+    "{\"code\": str, \"quotes\": [str]}"
+    "]}]}"
 )
 
 
@@ -17,9 +18,8 @@ def run_open_coding(*, sdk, segments: List[Dict[str, Any]], study_background: st
         "You are a grounded-theory expert performing high-quality OPEN CODING. "
         "For each segment, produce a reasonable number of concise, human-like codes (2–6 words) that capture actions, meanings, or conditions. "
         "Avoid generic words (e.g., the, and), names (e.g., interviewer), or single words. Prefer short gerund phrases or noun phrases. "
-        "For each code, also return a SPAN specifying a VERBATIM substring (1–3 sentences) of the provided segment text that best supports the code. "
-        "Return SPAN as character indices relative to the EXACT segment text provided: 0-based start (inclusive) and end (exclusive). "
-        "Strict rules: choose a contiguous substring; do NOT paraphrase; do NOT add ellipses, brackets, or annotations; do NOT include leading or trailing quotation marks. "
+        "For each code, also return a small list (1–2 items) of verbatim QUOTES (each 1–2 sentences) taken directly from the same segment text. "
+        "Strict rules: copy the quote exactly as it appears in the segment; do NOT paraphrase; do NOT add ellipses, brackets, or commentary. "
         "Prefer interviewee speech; exclude interviewer prompts. "
         f"Analysis mode: {analysis_mode}. "
         + ("Apply the theoretical framework consistently in your open coding. " if analysis_mode == "constructionist" else "Apply the theoretical framework suggestively in your open coding, if and only if it deems relevant and useful. " if analysis_mode == "interpretive" else "Use classic grounded-theory (no framework). ")
@@ -34,7 +34,7 @@ def run_open_coding(*, sdk, segments: List[Dict[str, Any]], study_background: st
             "study_background": study_background,
             "theoretical_framework": theoretical_framework if analysis_mode != "classic" else "",
             "segments": items,
-            "instructions": "2-6 word codes; provide a span {start,end} per code (0-based, end exclusive) referencing the segment text; prefer interviewee speech; JSON only.",
+            "instructions": "2-6 word codes; for each code include 1-2 verbatim quotes from the segment text; prefer interviewee speech; JSON only.",
             "schema": OPEN_SCHEMA,
         },
         ensure_ascii=False,
