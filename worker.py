@@ -4,7 +4,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 from datetime import datetime
 import time
 import re
@@ -183,6 +183,14 @@ def run_job(run_dir: Path) -> None:
         cut = enders[max_sentences - 1].end()
         return t[:cut].strip()
 
+    def _has_codes(blocks: List[Dict[str, Any]]) -> bool:
+        return any((block.get("codes") for block in blocks))
+
+    def _iter_chunks(items: List[Dict[str, Any]], size: int) -> List[List[Dict[str, Any]]]:
+        if size <= 0:
+            return [items]
+        return [items[i:i + size] for i in range(0, len(items), size)]
+
     # Per-coder analysis agents
     per_coder_open: List[List[Dict[str, Any]]] = []
     per_coder_categories: List[List[Dict[str, Any]]] = []
@@ -193,6 +201,7 @@ def run_job(run_dir: Path) -> None:
         _log(run_dir, f"[{coder_id}] Open coding...")
         # Provide original segments; coder agent decides interviewee content
         oc_blocks: List[Dict[str, Any]] = []
+        diag_msg: str | None = None
         for attempt in range(2):
             oc_blocks = run_open_coding(
                 sdk=sdk,
@@ -200,12 +209,43 @@ def run_job(run_dir: Path) -> None:
                 study_background=study_background,
                 analysis_mode=analysis_mode,
                 theoretical_framework=theoretical_framework,
-                attempts=1,
-                timeout_s=60.0,
+                attempts=2,
+                timeout_s=75.0,
             )
-            if oc_blocks and any((b.get("codes") for b in oc_blocks)):
+            if oc_blocks and _has_codes(oc_blocks):
                 break
-            _log(run_dir, f"[{coder_id}] Retrying open coding (attempt {attempt + 2})...")
+            diag_msg = (sdk.diagnostics() or {}).get("last_error")
+            if diag_msg:
+                _log(run_dir, f"[{coder_id}] Open coding attempt {attempt + 1} warning: {diag_msg}")
+            if attempt < 1:
+                _log(run_dir, f"[{coder_id}] Retrying open coding (attempt {attempt + 2})...")
+        if not (oc_blocks and _has_codes(oc_blocks)):
+            _log(run_dir, f"[{coder_id}] Falling back to chunked open coding (smaller batches)...")
+            chunk_size = 4 if len(all_segments) > 4 else max(1, len(all_segments))
+            merged: Dict[Tuple[str, int], Dict[str, Any]] = {}
+            for chunk in _iter_chunks(all_segments, chunk_size):
+                chunk_blocks = run_open_coding(
+                    sdk=sdk,
+                    segments=chunk,
+                    study_background=study_background,
+                    analysis_mode=analysis_mode,
+                    theoretical_framework=theoretical_framework,
+                    attempts=2,
+                    timeout_s=75.0,
+                )
+                for block in chunk_blocks or []:
+                    key = (str(block.get("transcript")), int(block.get("segment_number") or 0))
+                    # Prefer retaining codes if present
+                    if key not in merged or not merged[key].get("codes"):
+                        merged[key] = block
+            oc_blocks = list(merged.values())
+            if not (oc_blocks and _has_codes(oc_blocks)):
+                if diag_msg:
+                    _log(run_dir, f"[{coder_id}] Fallback open coding warning: {diag_msg}")
+                else:
+                    diag = sdk.diagnostics()
+                    if diag.get("last_error"):
+                        _log(run_dir, f"[{coder_id}] Fallback open coding warning: {diag['last_error']}")
         # normalize to list of {code, transcript, segment_number, sample_quote?}
         oc: List[Dict[str, Any]] = []
         for block in oc_blocks:
