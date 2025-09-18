@@ -1,25 +1,31 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Dict, List, Tuple, Optional
 
 
-# Open coding now collects a single sample_quote per code directly from the model.
-OPEN_SCHEMA = (
-    "{\"open_codes\": ["
-    "{\"transcript\": str, \"segment_number\": int, \"codes\": ["
-    "{\"code\": str, \"sample_quote\": str}"
-    "]}]}"
-)
+# Open coding returns codes only (no quotes).
+OPEN_SCHEMA = "{\"open_codes\": [{\"transcript\": str, \"segment_number\": int, \"codes\": [str]}]}"
 
 
-def run_open_coding(*, sdk, segments: List[Dict[str, Any]], study_background: str, analysis_mode: str, theoretical_framework: str, attempts: int = 2, timeout_s: float = 60.0) -> List[Dict[str, Any]]:
+def run_open_coding(
+    *,
+    sdk,
+    segments: List[Dict[str, Any]],
+    study_background: str,
+    analysis_mode: str,
+    theoretical_framework: str,
+    transcript_summaries: Optional[Dict[str, str]] = None,
+    attempts: int = 2,
+    timeout_s: float = 60.0,
+) -> List[Dict[str, Any]]:
     system = (
         "You are a grounded-theory expert performing high-quality OPEN CODING. "
-        "For each segment, produce a reasonable number of concise, human-like codes (2–6 words) that capture actions, meanings, or conditions. "
+        "For each segment, produce human-like codes (2–6 words) that capture actions, meanings, or conditions. "
+        "You are not limited in the number of codes you create—generate as many as needed to achieve thorough coverage of the concepts in each segment—but ensure each code is unique and avoid duplicates. "
         "Avoid generic words (e.g., the, and), names (e.g., interviewer), or single words. Prefer short gerund phrases or noun phrases. "
-        "For each code, also return a `sample_quote` field with a single most relevant verbatim quote (1–2 sentences) taken directly from the same segment text. "
-        "Strict rules: copy the quote exactly as it appears in the segment; do NOT paraphrase; do NOT add ellipses, brackets, or commentary. Provide only one quote per code. "
+        "Return only the codes; do NOT provide supporting quotes or commentary. "
         "Prefer interviewee speech; exclude interviewer prompts. "
         f"Analysis mode: {analysis_mode}. "
         + ("Apply the theoretical framework consistently in your open coding. " if analysis_mode == "constructionist" else "Apply the theoretical framework suggestively in your open coding, if and only if it deems relevant and useful. " if analysis_mode == "interpretive" else "Use classic grounded-theory (no framework). ")
@@ -29,16 +35,16 @@ def run_open_coding(*, sdk, segments: List[Dict[str, Any]], study_background: st
     items = [
         {"transcript": s.get("transcript"), "segment_number": s.get("segment_number"), "text": s.get("text", "")} for s in segments
     ]
-    user = json.dumps(
-        {
-            "study_background": study_background,
-            "theoretical_framework": theoretical_framework if analysis_mode != "classic" else "",
-            "segments": items,
-            "instructions": "2-6 word codes; for each code include a single verbatim sample_quote from the segment text; prefer interviewee speech; JSON only.",
-            "schema": OPEN_SCHEMA,
-        },
-        ensure_ascii=False,
-    )
+    payload = {
+        "study_background": study_background,
+        "theoretical_framework": theoretical_framework if analysis_mode != "classic" else "",
+        "segments": items,
+        "instructions": "2-6 word codes per segment; no quotes or explanations; JSON only.",
+        "schema": OPEN_SCHEMA,
+    }
+    if transcript_summaries:
+        payload["transcript_summaries"] = transcript_summaries
+    user = json.dumps(payload, ensure_ascii=False)
 
     data = sdk.run_json(system, user, schema_hint=OPEN_SCHEMA, attempts=attempts, timeout_s=timeout_s)
     return data.get("open_codes") or []
@@ -80,8 +86,6 @@ def run_axial_coding(
             "code": oc.get("code"),
             "transcript": oc.get("transcript"),
             "segment_number": oc.get("segment_number"),
-            # Include optional micro-context if present (sample_quote), but schema remains the same on output
-            "sample_quote": oc.get("sample_quote"),
         }
         for idx, oc in enumerate(open_codes)
     ]
@@ -150,9 +154,20 @@ def run_selective_coding(
 
 # Comprehensive transcript summarization used as background for axial and selective phases
 SUMMARY_SCHEMA = "{""summary"": str}"
+_TOKEN_RE = re.compile(r"\S+")
 
 
-def summarize_transcript(*, sdk, transcript_name: str, text: str, attempts: int = 1, timeout_s: float = 120.0) -> str:
+def _limit_tokens(text: str, max_tokens: int) -> str:
+    if max_tokens <= 0:
+        return text
+    tokens = list(_TOKEN_RE.finditer(text))
+    if len(tokens) <= max_tokens:
+        return text
+    cutoff = tokens[max_tokens - 1].end()
+    return text[:cutoff].rstrip()
+
+
+def summarize_transcript(*, sdk, transcript_name: str, text: str, attempts: int = 1, timeout_s: float = 120.0, max_tokens: int = 2000) -> str:
     system = (
         "You produce a comprehensive multi-paragraph academic-style summary of an interview transcript. "
         "Capture key themes, trajectories, tensions, and contextual nuances. Maintain neutrality and avoid speculation. JSON only."
@@ -166,8 +181,15 @@ def summarize_transcript(*, sdk, transcript_name: str, text: str, attempts: int 
         },
         ensure_ascii=False,
     )
-    data = sdk.run_json(system, user, schema_hint=SUMMARY_SCHEMA, attempts=attempts, timeout_s=timeout_s)
-    return data.get("summary", "")
+    data = sdk.run_json(
+        system,
+        user,
+        schema_hint=SUMMARY_SCHEMA,
+        attempts=attempts,
+        timeout_s=timeout_s,
+    )
+    summary = data.get("summary", "")
+    return _limit_tokens(summary, max_tokens)
 
 
 # Refinement of study background and theoretical framework to optimize clarity and flow

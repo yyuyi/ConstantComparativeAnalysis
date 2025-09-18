@@ -22,7 +22,7 @@ An agent‑based grounded‑theory analysis tool with per‑coder agents and an 
   - Optionally click “Refine Text” to preview polished background/framework before running
 
 ## How It Works
-- Segmentation: LangChain `RecursiveCharacterTextSplitter` (default ~500 tokens per segment).
+- Segmentation: LangChain `RecursiveCharacterTextSplitter` with user-selectable chunk sizes (1000, 2000, 3000, 4000, or 5000 tokens; default 3000).
 - Vector DB: in‑memory ChromaDB with OpenAI `text-embedding-3-small`. Retrieval `k` is fixed (`config.RAG_K_DEFAULT`).
 - Open coding: returns 1–3 codes per segment. For each code, the agent also returns a single verbatim sample quote (1–2 sentences copied directly from the segment text).
 - Axial coding: clusters codes into categories with names/descriptions and members `{transcript, segment_number}`; RAG attaches 1–3 quotes per category (trimmed to ≤ 3 sentences). No quotes are passed to the axial prompt itself.
@@ -32,13 +32,13 @@ An agent‑based grounded‑theory analysis tool with per‑coder agents and an 
 
 ## Outputs
 - Per transcript: `segments_<transcript>.txt`
-- Per coder: `open_coding_<coder>.txt` (includes `sample_quote`), `axial_coding_<coder>.txt`, `selective_coding_<coder>.txt`
+- Per coder: `open_coding_<coder>.txt` (codes only), `axial_coding_<coder>.txt`, `selective_coding_<coder>.txt`
 - Integrated: `integrated_open_codes.txt` `{ "open_codes": [str] }`, `integrated_categories.txt`, `integrated_core_story.txt`
 - Summary: `analysis_summary.txt`
 
 ## Configuration
 - Defaults: see `grounded_theory_agent/config.py` (model, segment length, RAG k, output dir)
-- API key: UI field (required) or env `OPENAI_API_KEY` for non-UI calls
+- API key: UI field (required) or env `OPENAI_API_KEY` for non-UI calls. Form-submitted keys are stored only in a transient secrets directory and removed once the worker starts (never written to downloadable outputs).
 - Port: default 5000 (override with `PORT`)
 
 ## Notes

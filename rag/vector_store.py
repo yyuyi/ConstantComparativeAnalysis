@@ -28,7 +28,27 @@ class VectorIndex:
             chunk_overlap=overlap,
             separators=["\n\n", "\n", ". ", "? ", "! ", ", ", " ", ""],
         )
-        return splitter.split_text(text)
+        raw_chunks = [chunk.strip() for chunk in splitter.split_text(text) if chunk and chunk.strip()]
+        if not raw_chunks:
+            return []
+
+        min_chunk_chars = max(800, chunk_chars // 4)
+        merged: List[str] = []
+        current = raw_chunks[0]
+        for chunk in raw_chunks[1:]:
+            if len(current) < min_chunk_chars:
+                current = f"{current}\n\n{chunk}"
+                continue
+            merged.append(current)
+            current = chunk
+
+        if current:
+            if len(current) < min_chunk_chars and merged:
+                merged[-1] = f"{merged[-1]}\n\n{current}"
+            else:
+                merged.append(current)
+
+        return merged
 
     def add_transcript(self, *, name: str, raw_text: str, segment_len_tokens: int) -> List[Dict]:
         # Approximate characters per token

@@ -29,7 +29,11 @@
           </div>
           <div class="field">
             <label for="coders">Coders</label>
-            <input type="number" id="coders" name="coders" min="1" value="2" />
+            <select id="coders" name="coders">
+              <option value="1" selected>1</option>
+              <option value="2">2</option>
+            </select>
+            <div class="help">Choose either a single coder run or a two-coder comparison.</div>
           </div>
           <div class="field">
             <label>Analysis Mode</label>
@@ -44,6 +48,7 @@
             <div class="field">
               <label for="theoretical_framework">Theoretical Framework</label>
               <textarea id="theoretical_framework" name="theoretical_framework" placeholder="e.g., Activity Theory, Social Constructionism"></textarea>
+              <div class="help" id="theoretical_framework_counter">1000 words left</div>
             </div>
             <div class="actions">
               <button type="button" class="btn" id="refine_tf_btn">Revise</button>
@@ -65,8 +70,11 @@
           </div>
           <div class="field">
             <label for="segment_length">Segment Length (tokens)</label>
-            <input type="number" id="segment_length" name="segment_length" min="50" value="{{ default_segment_len }}" />
-            <div class="help">Approximate token budget per segment.</div>
+            <select id="segment_length" name="segment_length">
+              {% for opt in segment_length_options %}
+                <option value="{{ opt }}" {% if opt == default_segment_len %}selected{% endif %}>{{ opt }}</option>
+              {% endfor %}
+            </select>
           </div>
           <div class="field">
             <label for="model">Model</label>
@@ -89,6 +97,7 @@
             <div class="field">
               <label for="study_background">Context and objectives</label>
               <textarea id="study_background" name="study_background" required placeholder="Describe the study context, aims, and key constructs..."></textarea>
+              <div class="help" id="study_background_counter">1000 words left</div>
             </div>
             <div class="actions">
               <button type="button" class="btn" id="refine_bg_btn">Revise</button>
@@ -104,18 +113,61 @@
       </form>
     </main>
     <script>
+      const WORD_LIMIT_BG = 1000;
+      const WORD_LIMIT_TF = 1000;
+
+      function applyWordLimit(textarea, limit) {
+        if (!textarea) return 0;
+        const text = textarea.value;
+        const matches = Array.from(text.matchAll(/\S+/g));
+        if (matches.length > limit) {
+          const cutoffMatch = matches[limit - 1];
+          const cutoff = cutoffMatch.index + cutoffMatch[0].length;
+          textarea.value = text.slice(0, cutoff).trimEnd();
+          return limit;
+        }
+        return matches.length;
+      }
+
+      function updateWordCounter(textarea, counterEl, limit) {
+        if (!textarea || !counterEl) return;
+        const words = applyWordLimit(textarea, limit);
+        const remaining = Math.max(0, limit - words);
+        counterEl.textContent = `${remaining} word${remaining === 1 ? '' : 's'} left`;
+      }
+
+      function setupWordLimit(textareaId, counterId, limit) {
+        const textarea = document.getElementById(textareaId);
+        const counterEl = document.getElementById(counterId);
+        if (!textarea || !counterEl) {
+          return { textarea: null, counter: null, update: () => {} };
+        }
+        const update = () => updateWordCounter(textarea, counterEl, limit);
+        textarea.addEventListener('input', update);
+        update();
+        return { textarea, counter: counterEl, limit, update };
+      }
+
+      let bgLimiter = null;
+      let tfLimiter = null;
+
       function updateTFVisibility() {
         const mode = document.querySelector('input[name="analysis_mode"]:checked')?.value;
         const tfInline = document.getElementById('tf-inline');
         if (!tfInline) return;
         if (mode === 'interpretive' || mode === 'constructionist') {
           tfInline.style.display = '';
+          if (tfLimiter && typeof tfLimiter.update === 'function') tfLimiter.update();
         } else {
           tfInline.style.display = 'none';
           const input = document.getElementById('theoretical_framework');
-          if (input) input.value='';
+          if (input) {
+            input.value = '';
+            if (tfLimiter && typeof tfLimiter.update === 'function') tfLimiter.update();
+          }
         }
       }
+
       function updateMaxCatState() {
         const auto = document.getElementById('auto_categories');
         const num = document.getElementById('max_categories');
@@ -124,6 +176,10 @@
           if (auto.checked) num.value = '';
         }
       }
+
+      bgLimiter = setupWordLimit('study_background', 'study_background_counter', WORD_LIMIT_BG);
+      tfLimiter = setupWordLimit('theoretical_framework', 'theoretical_framework_counter', WORD_LIMIT_TF);
+
       document.querySelectorAll('input[name="analysis_mode"]').forEach(el => el.addEventListener('change', updateTFVisibility));
       const autoEl = document.getElementById('auto_categories');
       if (autoEl) autoEl.addEventListener('change', updateMaxCatState);
@@ -139,6 +195,8 @@
         const statusEl = document.getElementById(kind === 'bg' ? 'status_bg' : 'status_tf');
         const revertBtn = document.getElementById(kind === 'bg' ? 'revert_bg_btn' : 'revert_tf_btn');
         const refineBtn = document.getElementById(kind === 'bg' ? 'refine_bg_btn' : 'refine_tf_btn');
+        if (kind === 'bg' && bgLimiter && typeof bgLimiter.update === 'function') bgLimiter.update();
+        if (kind === 'tf' && tfLimiter && typeof tfLimiter.update === 'function') tfLimiter.update();
         const sb = sbEl.value;
         const tf = tfEl ? tfEl.value : '';
         statusEl.textContent = 'Refining…';
@@ -154,10 +212,16 @@
           if (!data.ok) { statusEl.textContent = 'Refine failed: ' + (data.error || 'Unknown'); return; }
           if (kind === 'bg') {
             if (!snapshots.bg) snapshots.bg = sb;
-            if (data.study_background) sbEl.value = data.study_background;
+            if (data.study_background) {
+              sbEl.value = data.study_background;
+              if (bgLimiter && typeof bgLimiter.update === 'function') bgLimiter.update();
+            }
           } else {
             if (!snapshots.tf) snapshots.tf = tf;
-            if (tfEl && (data.theoretical_framework !== undefined)) tfEl.value = data.theoretical_framework;
+            if (tfEl && (data.theoretical_framework !== undefined)) {
+              tfEl.value = data.theoretical_framework;
+              if (tfLimiter && typeof tfLimiter.update === 'function') tfLimiter.update();
+            }
           }
           revertBtn.disabled = false;
           statusEl.textContent = 'Refined. You can edit or revert.';
@@ -173,11 +237,20 @@
         const revertBtn = document.getElementById(kind === 'bg' ? 'revert_bg_btn' : 'revert_tf_btn');
         if (kind === 'bg') {
           if (!snapshots.bg) { statusEl.textContent = 'Nothing to revert.'; return; }
-          document.getElementById('study_background').value = snapshots.bg; snapshots.bg = null;
+          const sbEl = document.getElementById('study_background');
+          if (sbEl) {
+            sbEl.value = snapshots.bg;
+            snapshots.bg = null;
+            if (bgLimiter && typeof bgLimiter.update === 'function') bgLimiter.update();
+          }
         } else {
           if (!snapshots.tf) { statusEl.textContent = 'Nothing to revert.'; return; }
           const tfEl = document.getElementById('theoretical_framework');
-          if (tfEl) tfEl.value = snapshots.tf; snapshots.tf = null;
+          if (tfEl) {
+            tfEl.value = snapshots.tf;
+            snapshots.tf = null;
+            if (tfLimiter && typeof tfLimiter.update === 'function') tfLimiter.update();
+          }
         }
         revertBtn.disabled = true;
         statusEl.textContent = 'Reverted to original.';

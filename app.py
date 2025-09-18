@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List
 import threading
+import re
 
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory, jsonify
 import sys
@@ -40,6 +41,19 @@ def _safe_int(v: str | None, default: int) -> int:
         return default
 
 
+_WORD_RE = re.compile(r"\S+")
+
+
+def _enforce_word_limit(text: str, limit: int) -> str:
+    if limit <= 0:
+        return text
+    matches = list(_WORD_RE.finditer(text))
+    if len(matches) <= limit:
+        return text
+    cutoff = matches[limit - 1].end()
+    return text[:cutoff].rstrip()
+
+
 @app.route("/")
 def index() -> str:
     return render_template(
@@ -47,6 +61,7 @@ def index() -> str:
         default_model=config.DEFAULT_MODEL,
         model_options=config.MODEL_OPTIONS,
         default_segment_len=config.SEGMENT_LENGTH_DEFAULT,
+        segment_length_options=getattr(config, "SEGMENT_LENGTH_OPTIONS", [config.SEGMENT_LENGTH_DEFAULT]),
         default_max_categories=config.MAX_CATEGORIES_DEFAULT,
     )
 
@@ -55,9 +70,14 @@ def index() -> str:
 def start() -> str:
     # Read inputs
     study_background = request.form.get("study_background", "").strip()
-    coders = max(1, _safe_int(request.form.get("coders", "1"), 1))
+    background_limit = getattr(config, "STUDY_BACKGROUND_WORD_LIMIT", 1000)
+    study_background = _enforce_word_limit(study_background, background_limit)
+    coders = _safe_int(request.form.get("coders", "1"), 1)
+    coders = max(1, min(2, coders))
     analysis_mode = request.form.get("analysis_mode", "classic").strip()
     theoretical_framework = request.form.get("theoretical_framework", "").strip()
+    tf_limit = getattr(config, "THEORETICAL_FRAMEWORK_WORD_LIMIT", 1000)
+    theoretical_framework = _enforce_word_limit(theoretical_framework, tf_limit)
     cac_enabled = request.form.get("cac_enabled") == "on"
     # Max categories: allow auto (no limit) if checkbox set or value <= 0
     auto_categories = request.form.get("auto_categories") == "on"
@@ -66,6 +86,9 @@ def start() -> str:
     else:
         max_categories = _safe_int(request.form.get("max_categories"), config.MAX_CATEGORIES_DEFAULT)
     segment_len = _safe_int(request.form.get("segment_length"), config.SEGMENT_LENGTH_DEFAULT)
+    allowed_segments = set(getattr(config, "SEGMENT_LENGTH_OPTIONS", [config.SEGMENT_LENGTH_DEFAULT]))
+    if segment_len not in allowed_segments:
+        segment_len = config.SEGMENT_LENGTH_DEFAULT
     model = request.form.get("model", config.DEFAULT_MODEL).strip()
     api_key = request.form.get("openai_api_key", "").strip()
 
@@ -105,10 +128,17 @@ def start() -> str:
         "auto_categories": auto_categories,
         "segment_length": segment_len,
         "model": model,
-        "api_key": api_key,
         "uploads": uploads,
     }
+    # Persist the API key separately and do not include it in params.json
     (run_dir / "params.json").write_text(json.dumps(params, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # Store the API key in a protected secrets directory outside the downloadable outputs.
+    secrets_dir = base / "_secrets"
+    secrets_dir.mkdir(parents=True, exist_ok=True)
+    secret_path = secrets_dir / f"{run_id}.secret"
+    secret_path.write_text(api_key, encoding="utf-8")
+    secret_path.chmod(0o600)
 
     threading.Thread(target=run_job, args=(run_dir,), daemon=True).start()
     return redirect(url_for("status", run_id=run_id))
@@ -125,6 +155,10 @@ def refine():
         api_key = (payload.get("openai_api_key") or "").strip()
         if not api_key:
             return jsonify({"ok": False, "error": "OPENAI_API_KEY is required for refinement."}), 400
+        bg_limit = getattr(config, "STUDY_BACKGROUND_WORD_LIMIT", 1000)
+        tf_limit = getattr(config, "THEORETICAL_FRAMEWORK_WORD_LIMIT", 1000)
+        study_background = _enforce_word_limit(study_background, bg_limit)
+        theoretical_framework = _enforce_word_limit(theoretical_framework, tf_limit)
 
         # Initialize SDK + refine function
         try:
@@ -143,7 +177,12 @@ def refine():
             attempts=1,
             timeout_s=45.0,
         )
-        return jsonify({"ok": True, **out})
+        if isinstance(out, dict):
+            if "study_background" in out:
+                out["study_background"] = _enforce_word_limit(out.get("study_background", ""), bg_limit)
+            if "theoretical_framework" in out:
+                out["theoretical_framework"] = _enforce_word_limit(out.get("theoretical_framework", ""), tf_limit)
+        return jsonify({"ok": True, **(out or {})})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400
 

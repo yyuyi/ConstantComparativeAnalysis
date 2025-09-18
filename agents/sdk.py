@@ -39,7 +39,16 @@ class AgentSDK:
         except Exception:
             self._agents = None
 
-    def run_json(self, system: str, user: str, *, schema_hint: Optional[str] = None, attempts: int = 2, temperature: float = 0.0, max_tokens: int = 1200, timeout_s: float | None = 60.0) -> dict:
+    def run_json(
+        self,
+        system: str,
+        user: str,
+        *,
+        schema_hint: Optional[str] = None,
+        attempts: int = 2,
+        temperature: float = 0.0,
+        timeout_s: float | None = 60.0,
+    ) -> dict:
         # Prefer Agents SDK if present, otherwise chat.completions
         # To keep it simple and robust, both paths request JSON-only responses.
         # Agents path (if available)
@@ -53,27 +62,29 @@ class AgentSDK:
                     pass
                 # First attempt: request JSON format
                 try:
-                    resp = client.chat.completions.create(
-                        model=self.model,
-                        response_format={"type": "json_object"},
-                        messages=[
+                    kwargs = {
+                        "model": self.model,
+                        "response_format": {"type": "json_object"},
+                        "messages": [
                             {"role": "system", "content": system},
                             {"role": "user", "content": user},
                         ],
-                    )
+                    }
+                    resp = client.chat.completions.create(**kwargs)
                     content = resp.choices[0].message.content if resp.choices else ""
                     self.last_raw = content or ""
                     return json.loads(content) if content else {}
                 except Exception as e1:
                     # Fallback: no response_format; parse flexibly
                     self.last_error = f"agents json_format unsupported, fallback: {e1}"
-                    resp = client.chat.completions.create(
-                        model=self.model,
-                        messages=[
+                    kwargs = {
+                        "model": self.model,
+                        "messages": [
                             {"role": "system", "content": system},
                             {"role": "user", "content": user},
                         ],
-                    )
+                    }
+                    resp = client.chat.completions.create(**kwargs)
                     content = resp.choices[0].message.content if resp.choices else ""
                     self.last_raw = content or ""
                     data = _parse_json_flexible(content)
@@ -93,14 +104,15 @@ class AgentSDK:
                     except Exception:
                         pass
                     try:
-                        resp = client.chat.completions.create(
-                            model=self.model,
-                            response_format={"type": "json_object"},
-                            messages=[
+                        kwargs = {
+                            "model": self.model,
+                            "response_format": {"type": "json_object"},
+                            "messages": [
                                 {"role": "system", "content": system},
                                 {"role": "user", "content": user},
                             ],
-                        )
+                        }
+                        resp = client.chat.completions.create(**kwargs)
                         content = resp.choices[0].message.content if resp.choices else ""
                         last_text = content or ""
                         self.last_raw = last_text
@@ -109,13 +121,14 @@ class AgentSDK:
                     except Exception as e1:
                         # Fallback without response_format
                         self.last_error = f"chat json_format unsupported, fallback: {e1}"
-                        resp = client.chat.completions.create(
-                            model=self.model,
-                            messages=[
+                        kwargs = {
+                            "model": self.model,
+                            "messages": [
                                 {"role": "system", "content": system},
                                 {"role": "user", "content": user},
                             ],
-                        )
+                        }
+                        resp = client.chat.completions.create(**kwargs)
                         content = resp.choices[0].message.content if resp.choices else ""
                         last_text = content or ""
                         self.last_raw = last_text
