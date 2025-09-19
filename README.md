@@ -4,7 +4,7 @@ An agent‑based grounded‑theory analysis tool with per‑coder agents and an 
 
 ## Features
 - Multi‑coder pipeline: open → axial → selective coding per coder
-- Open coding: per-code verbatim sample quote returned directly by the LLM (1–2 sentences)
+- Open coding: 1–3 concise codes per segment; supporting quotes are attached later during axial coding via RAG
 - Axial coding: RAG‑sourced quotes (1–3 sentences) added in a single batched call
 - Summaries: comprehensive per‑transcript summaries inform axial and selective coding
 - Categories: Auto mode (default) or cap to ≤ N
@@ -24,7 +24,7 @@ An agent‑based grounded‑theory analysis tool with per‑coder agents and an 
 ## How It Works
 - Segmentation: LangChain `RecursiveCharacterTextSplitter` with user-selectable chunk sizes (1000, 2000, 3000, 4000, or 5000 tokens; default 3000).
 - Vector DB: in‑memory ChromaDB with OpenAI `text-embedding-3-small`. Retrieval `k` is fixed (`config.RAG_K_DEFAULT`).
-- Open coding: returns 1–3 codes per segment. For each code, the agent also returns a single verbatim sample quote (1–2 sentences copied directly from the segment text).
+- Open coding: returns 1–3 concise codes per segment (no quotes). Quotes are retrieved later for categories during axial coding.
 - Axial coding: clusters codes into categories with names/descriptions and members `{transcript, segment_number}`; RAG attaches 1–3 quotes per category (trimmed to ≤ 3 sentences). No quotes are passed to the axial prompt itself.
 - Selective coding: multi‑paragraph core story (CAC‑aware when enabled), using only category quotes and summaries as background.
 - Integration: merges open codes (simple list), categories, and a unified core story.
@@ -44,10 +44,4 @@ An agent‑based grounded‑theory analysis tool with per‑coder agents and an 
 ## Notes
 - Summaries are always generated and used (no toggle).
 - Refinement is preview‑only; the worker does not auto‑refine.
-- Quotes are always verbatim substrings of the source: spans for open coding, RAG + trimming for axial.
-- Render.com deployment
-  - Add this repo to Render as a Web Service.
-  - Build command: `pip install -r grounded_theory_agent/requirements.txt`
-  - Start command: `gunicorn grounded_theory_agent.app:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1 --threads 4`
-  - Set env var `GT_OUTPUT_DIR=/tmp/generated` (writable on Render). Optionally set `OPENAI_API_KEY`.
-  - Alternatively use the provided `render.yaml` for IaC deployment.
+- Quotes are always verbatim substrings of the source, retrieved via RAG during axial coding and trimmed to ≤ 3 sentences.
