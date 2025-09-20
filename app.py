@@ -30,8 +30,23 @@ try:
 except Exception:
     from worker import run_job
 
+try:
+    from .task_queue import get_queue  # type: ignore
+except Exception:
+    try:
+        from task_queue import get_queue  # type: ignore
+    except Exception:
+        def get_queue():
+            return None
+
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
+
+
+def _append_progress_line(run_dir: Path, message: str) -> None:
+    ts = datetime.utcnow().strftime("%H:%M:%S")
+    with open(run_dir / "progress.log", "a", encoding="utf-8") as log:
+        log.write(f"[{ts}] {message}\n")
 
 
 def _safe_int(v: str | None, default: int) -> int:
@@ -140,7 +155,31 @@ def start() -> str:
     secret_path.write_text(api_key, encoding="utf-8")
     secret_path.chmod(0o600)
 
-    threading.Thread(target=run_job, args=(run_dir,), daemon=True).start()
+    queue = None
+    enqueue_error: str | None = None
+    try:
+        queue = get_queue()
+    except Exception as exc:
+        enqueue_error = str(exc)
+        queue = None
+
+    if queue:
+        try:
+            queue.enqueue("grounded_theory_agent.worker_entry.run_queued_job", str(run_dir), job_id=run_id, at_front=False)
+            _append_progress_line(run_dir, "Job enqueued for background worker.")
+        except Exception as exc:
+            enqueue_error = str(exc)
+            queue = None
+
+    if not queue:
+        fallback_msg = "Queue unavailable; running job in local background thread."
+        if enqueue_error:
+            fallback_msg = f"Queue unavailable ({enqueue_error}); running job in local background thread."
+        _append_progress_line(run_dir, fallback_msg)
+        threading.Thread(target=run_job, args=(run_dir,), daemon=True).start()
+    else:
+        _append_progress_line(run_dir, "Awaiting worker pickup...")
+
     return redirect(url_for("status", run_id=run_id))
 
 

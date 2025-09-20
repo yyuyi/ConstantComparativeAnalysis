@@ -174,7 +174,7 @@ def run_job(run_dir: Path) -> None:
         _log(run_dir, "Generating comprehensive transcript summaries...")
         for name, text in transcript_raw.items():
             if (text or "").strip():
-                summary = summarize_transcript(sdk=sdk, transcript_name=name, text=text, attempts=1, timeout_s=120.0)
+                summary = summarize_transcript(sdk=sdk, transcript_name=name, text=text, attempts=1, timeout_s=240.0)
                 transcript_summaries[name] = summary
             else:
                 transcript_summaries[name] = ""
@@ -255,7 +255,7 @@ def run_job(run_dir: Path) -> None:
                     theoretical_framework=theoretical_framework,
                     transcript_summaries=chunk_summaries,
                     attempts=2,
-                    timeout_s=75.0,
+                    timeout_s=150.0,
                 )
                 chunk_blocks = _normalize_open_blocks(chunk_blocks)
                 diag_info = sdk.diagnostics() or {}
@@ -324,7 +324,7 @@ def run_job(run_dir: Path) -> None:
                 theoretical_framework=theoretical_framework,
                 transcript_summaries=transcript_summaries,
                 attempts=1,
-                timeout_s=120.0,
+                timeout_s=240.0,
             )
             _log(run_dir, f"[{coder_id}] Axial response in {time.time()-t0:.2f}s; categories={len(cats) if cats else 0}.")
             if cats and all(c.get("name") for c in cats):
@@ -350,7 +350,7 @@ def run_job(run_dir: Path) -> None:
             )
             user = json.dumps({"items": payload_items, "schema": QUOTES_BATCH_SCHEMA}, ensure_ascii=False)
             t0 = time.time()
-            data = sdk.run_json(system, user, schema_hint=QUOTES_BATCH_SCHEMA, attempts=1, timeout_s=120.0)
+            data = sdk.run_json(system, user, schema_hint=QUOTES_BATCH_SCHEMA, attempts=1, timeout_s=240.0)
             _log(run_dir, f"[{coder_id}] Quote batch response in {time.time()-t0:.2f}s.")
             by_cat = {int(row.get("index", -1)): [str(q).strip() for q in (row.get("quotes") or []) if str(q).strip()] for row in (data.get("quotes_by_category") or [])}
             for idx, cat in enumerate(cats):
@@ -370,7 +370,7 @@ def run_job(run_dir: Path) -> None:
                 theoretical_framework=theoretical_framework,
                 transcript_summaries=transcript_summaries,
                 attempts=1,
-                timeout_s=75.0,
+                timeout_s=180.0,
             )
             if sel.get("core_story"):
                 break
@@ -395,7 +395,7 @@ def run_job(run_dir: Path) -> None:
                 analysis_mode=analysis_mode,
                 theoretical_framework=theoretical_framework,
                 attempts=1,
-                timeout_s=60.0,
+                timeout_s=120.0,
             )
             write_json_txt(run_dir, "integrated_open_codes.txt", open_synth)
 
@@ -407,7 +407,7 @@ def run_job(run_dir: Path) -> None:
                     analysis_mode=analysis_mode,
                     theoretical_framework=theoretical_framework,
                     attempts=1,
-                    timeout_s=60.0,
+                    timeout_s=150.0,
                 )
                 if merged_categories:
                     break
@@ -423,7 +423,7 @@ def run_job(run_dir: Path) -> None:
                     analysis_mode=analysis_mode,
                     theoretical_framework=theoretical_framework,
                     attempts=1,
-                    timeout_s=75.0,
+                    timeout_s=150.0,
                 )
                 if merged_core.get("core_story"):
                     break

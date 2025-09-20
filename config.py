@@ -18,6 +18,9 @@ MAX_CATEGORIES_DEFAULT = 0
 # Text limits to keep context concise for the agents
 STUDY_BACKGROUND_WORD_LIMIT = 1000
 THEORETICAL_FRAMEWORK_WORD_LIMIT = 1000
+REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
+RQ_QUEUE_NAME = os.getenv("RQ_QUEUE_NAME", "grounded_theory")
+RQ_DEFAULT_TIMEOUT = int(os.getenv("RQ_DEFAULT_TIMEOUT", "900"))
 # Writable output directory. On Render or other PaaS, prefer a writable path (e.g., /tmp/generated).
 # Overridable via env var GT_OUTPUT_DIR.
 OUTPUT_DIR = os.getenv("GT_OUTPUT_DIR", "generated")
