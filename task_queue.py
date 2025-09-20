@@ -13,7 +13,10 @@ try:
 except Exception:  # pragma: no cover - rq optional when queue disabled
     Queue = None  # type: ignore
 
-from . import config
+try:
+    from . import config  # type: ignore
+except Exception:  # pragma: no cover - support top-level imports
+    import config  # type: ignore
 
 
 def _redis_url() -> Optional[str]:
