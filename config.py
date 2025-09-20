@@ -20,7 +20,8 @@ STUDY_BACKGROUND_WORD_LIMIT = 1000
 THEORETICAL_FRAMEWORK_WORD_LIMIT = 1000
 REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
 RQ_QUEUE_NAME = os.getenv("RQ_QUEUE_NAME", "grounded_theory")
-RQ_DEFAULT_TIMEOUT = int(os.getenv("RQ_DEFAULT_TIMEOUT", "900"))
+# Allow multi-hour jobs by default; override via env if you need shorter windows.
+RQ_DEFAULT_TIMEOUT = int(os.getenv("RQ_DEFAULT_TIMEOUT", str(60 * 60 * 5)))
 # Writable output directory. On Render or other PaaS, prefer a writable path (e.g., /tmp/generated).
 # Overridable via env var GT_OUTPUT_DIR.
 OUTPUT_DIR = os.getenv("GT_OUTPUT_DIR", "generated")

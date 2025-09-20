@@ -10,7 +10,8 @@ REDIS_URL="${REDIS_URL:-redis://127.0.0.1:6379/0}"
 PORT="${PORT:-5000}"
 WEB_CONCURRENCY="${WEB_CONCURRENCY:-2}"
 GUNICORN_THREADS="${GUNICORN_THREADS:-4}"
-GUNICORN_TIMEOUT="${GUNICORN_TIMEOUT:-900}"
+# Keep Gunicorn alive for long-running analysis jobs (default 5 hours).
+GUNICORN_TIMEOUT="${GUNICORN_TIMEOUT:-18000}"
 
 # Ensure the output directory exists before jobs run.
 python - <<'PY'
