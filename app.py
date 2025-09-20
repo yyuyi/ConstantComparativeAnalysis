@@ -165,7 +165,15 @@ def start() -> str:
 
     if queue:
         try:
-            queue.enqueue("grounded_theory_agent.worker_entry.run_queued_job", str(run_dir), job_id=run_id, at_front=False)
+            import importlib
+
+            job_path = "grounded_theory_agent.worker_entry.run_queued_job"
+            try:
+                importlib.import_module("grounded_theory_agent.worker_entry")
+            except ModuleNotFoundError:
+                job_path = "worker_entry.run_queued_job"
+
+            queue.enqueue(job_path, str(run_dir), job_id=run_id, at_front=False)
             _append_progress_line(run_dir, "Job enqueued for background worker.")
         except Exception as exc:
             enqueue_error = str(exc)

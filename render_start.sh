@@ -32,6 +32,18 @@ output_dir = getattr(module, "OUTPUT_DIR", "generated")
 Path(output_dir).mkdir(parents=True, exist_ok=True)
 PY
 
+APP_MODULE=$(python - <<'PY'
+import importlib.util
+
+for name in ("grounded_theory_agent.app", "app"):
+    if importlib.util.find_spec(name):
+        print(f"{name}:app")
+        break
+else:
+    raise SystemExit("Unable to locate Flask app module.")
+PY
+)
+
 echo "Starting RQ worker -> queue=${QUEUE_NAME} redis=${REDIS_URL}" >&2
 rq worker --url "${REDIS_URL}" "${QUEUE_NAME}" &
 WORKER_PID=$!
@@ -44,8 +56,8 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "Starting Gunicorn -> port=${PORT} workers=${WEB_CONCURRENCY} threads=${GUNICORN_THREADS} timeout=${GUNICORN_TIMEOUT}" >&2
-gunicorn app:app \
+echo "Starting Gunicorn (${APP_MODULE}) -> port=${PORT} workers=${WEB_CONCURRENCY} threads=${GUNICORN_THREADS} timeout=${GUNICORN_TIMEOUT}" >&2
+gunicorn "${APP_MODULE}" \
   --bind "0.0.0.0:${PORT}" \
   --workers "${WEB_CONCURRENCY}" \
   --threads "${GUNICORN_THREADS}" \
