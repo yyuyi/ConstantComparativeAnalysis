@@ -36,7 +36,11 @@ APP_MODULE=$(python - <<'PY'
 import importlib.util
 
 for name in ("grounded_theory_agent.app", "app"):
-    if importlib.util.find_spec(name):
+    try:
+        spec = importlib.util.find_spec(name)
+    except ModuleNotFoundError:
+        continue
+    if spec is not None:
         print(f"{name}:app")
         break
 else:
