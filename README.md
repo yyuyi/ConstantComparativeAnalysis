@@ -48,6 +48,6 @@ An agent‑based grounded‑theory analysis tool with per‑coder agents and an 
 
 ## Deployment Notes
 - Configure `REDIS_URL` (and optionally `RQ_QUEUE_NAME`) so the web app can enqueue jobs onto Redis-backed RQ queues.
-- For single-service deployments, use the provided `render_start.sh` (located in the repo root). Set the Render start command to `./grounded_theory_agent/render_start.sh` so one container launches both Gunicorn and the RQ worker, and keep `REDIS_URL`/`RQ_QUEUE_NAME` aligned across instances.
+- For single-service deployments, use the provided `render_start.sh` in the repo root. Set the Render start command to `./render_start.sh` so one container launches both Gunicorn and the RQ worker, and keep `REDIS_URL`/`RQ_QUEUE_NAME` aligned across instances.
 - If you prefer dedicated services, run a background worker with `rq worker --url $REDIS_URL grounded_theory` (or your chosen queue name) so jobs execute outside the HTTP request path.
 - Ensure both web and worker processes point `GT_OUTPUT_DIR` to the same writable location (e.g., a shared persistent disk) so the UI can stream progress and downloads.
