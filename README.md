@@ -38,7 +38,7 @@ An agent-based constant comparative analysis (CCA) tool with per-coder agents an
 - Summary: `analysis_summary.txt`
 
 ## Configuration
-- Defaults: see `grounded_theory_agent/config.py` (model, segment length, RAG k, output dir)
+- Defaults: see `config.py` (model, segment length, RAG k, output dir)
 - API key: UI field (required) or env `OPENAI_API_KEY` for non-UI calls. Form-submitted keys are stored only in a transient secrets directory and removed once the worker starts (never written to downloadable outputs).
 - Port: default 5000 (override with `PORT`)
 
