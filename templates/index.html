@@ -3,15 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Grounded-Theory Agent App</title>
+    <title>Constant Comparative Analysis Agent App</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
   </head>
   <body>
     
     <main class="container">
       <header>
-        <h1>Grounded-Theory Coding (Agent Mode)</h1>
-        <p class="lede">Automate Grounded-Theory Analysis with Agentic AI.</p>
+        <h1>Constant Comparative Analysis</h1>
+        <p class="lede">Automate Constant Comparative Analysis with Agentic AI.</p>
       </header>
       <form id="run_form" action="{{ url_for('start') }}" method="post" enctype="multipart/form-data" class="grid">
         <details class="panel" id="run-panel" open>
@@ -66,7 +66,7 @@
               <label><input type="checkbox" name="auto_categories" id="auto_categories" checked /> Auto-determine</label>
               <input type="number" name="max_categories" id="max_categories" min="1" placeholder="Max (optional)" style="max-width: 140px; margin-left: 8px;" />
             </div>
-            <div class="help">Leave Auto on to let the agent choose a data-driven number. If provided, the agent produces ≤ this number.</div>
+            <div class="help">Leave Auto on to let the agent choose a data-driven number of comparative categories. If provided, the agent produces ≤ this number.</div>
           </div>
           <div class="field">
             <label for="segment_length">Segment Length (tokens)</label>

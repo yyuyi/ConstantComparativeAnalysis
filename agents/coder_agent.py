@@ -2,14 +2,23 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Optional
+
+INCIDENT_SCHEMA = "{\"incident_notes\": [{\"transcript\": str, \"segment_number\": int, \"labels\": [str], \"comparison_notes\": [{\"focus\": str, \"similarities\": str, \"differences\": str}], \"analytic_memo\": str}]}"
+CATEGORY_SCHEMA = "{\"comparative_categories\": [{\"name\": str, \"defining_properties\": [str], \"comparative_insights\": [str], \"supporting_segments\": [{\"transcript\": str, \"segment_number\": int, \"labels\": [str]}]}]}"
+MEMO_SCHEMA = "{\"comparative_memos\": [{\"focus\": str, \"comparisons_made\": [str], \"insights\": str, \"questions\": [str], \"next_steps\": [str]}]}"
+SYNTHESIS_SCHEMA = "{\"comparative_summary\": str}"
 
 
-# Open coding returns codes only (no quotes).
-OPEN_SCHEMA = "{\"open_codes\": [{\"transcript\": str, \"segment_number\": int, \"codes\": [str]}]}"
+def _mode_instruction(analysis_mode: str, phase: str) -> str:
+    if analysis_mode == "constructionist":
+        return f"Apply the provided theoretical framework rigorously during {phase}. "
+    if analysis_mode == "interpretive":
+        return f"Use the theoretical framework as a sensitizing device during {phase}, but privilege data-driven insights. "
+    return f"Conduct {phase} in a classic constant-comparative manner with no imposed framework. "
 
 
-def run_open_coding(
+def run_incident_coding(
     *,
     sdk,
     segments: List[Dict[str, Any]],
@@ -17,169 +26,154 @@ def run_open_coding(
     analysis_mode: str,
     theoretical_framework: str,
     transcript_summaries: Optional[Dict[str, str]] = None,
+    prior_incidents: Optional[List[Dict[str, Any]]] = None,
     attempts: int = 2,
-    timeout_s: float = 60.0,
+    timeout_s: float = 90.0,
 ) -> List[Dict[str, Any]]:
     system = (
-        "You are a grounded-theory expert performing high-quality OPEN CODING. "
-        "For each segment, produce human-like codes (2–6 words) that capture actions, meanings, or conditions. "
-        "You are not limited in the number of codes you create—generate as many as needed to achieve thorough coverage of the concepts in each segment—but ensure each code is unique and avoid duplicates. "
-        "Avoid generic words (e.g., the, and), names (e.g., interviewer), or single words. Prefer short gerund phrases or noun phrases. "
-        "Return only the codes; do NOT provide supporting quotes or commentary. "
-        "Prefer interviewee speech; exclude interviewer prompts. "
-        f"Analysis mode: {analysis_mode}. "
-        + ("Apply the theoretical framework consistently in your open coding. " if analysis_mode == "constructionist" else "Apply the theoretical framework suggestively in your open coding, if and only if it deems relevant and useful. " if analysis_mode == "interpretive" else "Use classic grounded-theory (no framework). ")
-        + "Return ONLY JSON in the described schema."
+        "You are executing constant comparative incident coding. For each segment, identify analytic incident labels (2–6 words) and articulate how they compare with prior incidents. "
+        "Explicitly discuss similarities and differences and capture an analytic memo that justifies any refinements or new distinctions. "
+        + _mode_instruction(analysis_mode, "incident comparison")
+        + "Return ONLY JSON following the supplied schema."
     )
-    # Compact segment payload
     items = [
-        {"transcript": s.get("transcript"), "segment_number": s.get("segment_number"), "text": s.get("text", "")} for s in segments
+        {
+            "transcript": s.get("transcript"),
+            "segment_number": s.get("segment_number"),
+            "text": s.get("text", ""),
+        }
+        for s in segments
     ]
-    payload = {
+    payload: Dict[str, Any] = {
         "study_background": study_background,
         "theoretical_framework": theoretical_framework if analysis_mode != "classic" else "",
         "segments": items,
-        "instructions": "2-6 word codes per segment; no quotes or explanations; JSON only.",
-        "schema": OPEN_SCHEMA,
+        "prior_incidents": prior_incidents or [],
+        "instructions": (
+            "Produce labelled incidents, comparison notes (similarities and differences versus prior incidents), and a concise analytic memo per segment."
+        ),
+        "schema": INCIDENT_SCHEMA,
     }
     if transcript_summaries:
         payload["transcript_summaries"] = transcript_summaries
     user = json.dumps(payload, ensure_ascii=False)
-
-    data = sdk.run_json(system, user, schema_hint=OPEN_SCHEMA, attempts=attempts, timeout_s=timeout_s)
-    return data.get("open_codes") or []
-
-
-AXIAL_SCHEMA = "{""categories"": [{""name"": str, ""description"": str, ""members"": [{""transcript"": str, ""segment_number"": int}]}]}"
+    data = sdk.run_json(system, user, schema_hint=INCIDENT_SCHEMA, attempts=attempts, timeout_s=timeout_s)
+    return data.get("incident_notes") or []
 
 
-def run_axial_coding(
+def run_category_comparison(
     *,
     sdk,
-    open_codes: List[Dict[str, Any]],
+    incident_notes: List[Dict[str, Any]],
     max_categories: int,
     study_background: str,
     analysis_mode: str,
     theoretical_framework: str,
     transcript_summaries: Optional[Dict[str, str]] = None,
     attempts: int = 2,
-    timeout_s: float = 60.0,
+    timeout_s: float = 120.0,
 ) -> List[Dict[str, Any]]:
-    # Guidance about max categories depends on whether a limit is specified (>0) or auto (<=0)
-    limit_clause = (
-        "Cluster open codes into ≤ max_categories clear, analytic categories with concise but informative names and full-paragraph descriptions. "
-        if (isinstance(max_categories, int) and max_categories > 0)
-        else "Determine a reasonable number of distinct categories solely driven by the data; do not force a fixed count. Provide concise but informative names and full-paragraph descriptions. "
-    )
     system = (
-        "You are a grounded-theory expert performing AXIAL CODING. "
-        + limit_clause
-        + "You may use the provided per-code sample quotes and transcript summaries AS BACKGROUND to improve clustering quality and naming, but DO NOT include quotes in the output. "
-        + "Do NOT include supporting quotes; only provide category names, descriptions, and members as {transcript (with extension), segment_number}. "
-        + f"Analysis mode: {analysis_mode}. "
-        + ("Apply the theoretical framework consistently in your axial coding. " if analysis_mode == "constructionist" else "Apply the theoretical framework suggestively in your axial coding, if and only if it deems relevant and useful. " if analysis_mode == "interpretive" else "Use classic grounded-theory (no framework). ")
-        + "Return ONLY JSON in the described schema."
+        "You are advancing constant comparative analysis from incidents to provisional categories. Group incidents into analytic categories, specify defining properties, and articulate comparative insights that show how categories differ or overlap. "
+        "Each category must list the supporting segments (transcript + segment number + labels) that anchor it. "
+        + _mode_instruction(analysis_mode, "category comparison")
+        + "Return ONLY JSON following the supplied schema."
     )
-    items = [
-        {
-            "id": idx,
-            "code": oc.get("code"),
-            "transcript": oc.get("transcript"),
-            "segment_number": oc.get("segment_number"),
-        }
-        for idx, oc in enumerate(open_codes)
-    ]
-    user = json.dumps(
-        {
-            "study_background": study_background,
-            "theoretical_framework": theoretical_framework if analysis_mode != "classic" else "",
-            "max_categories": int(max_categories) if isinstance(max_categories, int) else 0,
-            "open_codes": items,
-            "transcript_summaries": transcript_summaries or {},
-            "schema": AXIAL_SCHEMA,
-        },
-        ensure_ascii=False,
+    limit_clause = (
+        "Limit the final set to <= max_categories categories if the value is > 0 while ensuring analytic sufficiency. "
+        if isinstance(max_categories, int) and max_categories > 0
+        else "Let the data determine the number of categories; do not force an arbitrary count. "
     )
+    payload = {
+        "study_background": study_background,
+        "theoretical_framework": theoretical_framework if analysis_mode != "classic" else "",
+        "incident_notes": incident_notes,
+        "transcript_summaries": transcript_summaries or {},
+        "max_categories": int(max_categories) if isinstance(max_categories, int) else 0,
+        "instructions": (
+            limit_clause
+            + " Compare incidents iteratively; name categories, define their properties, and highlight contrasts or boundary cases."
+        ),
+        "schema": CATEGORY_SCHEMA,
+    }
+    user = json.dumps(payload, ensure_ascii=False)
+    data = sdk.run_json(system, user, schema_hint=CATEGORY_SCHEMA, attempts=attempts, timeout_s=timeout_s)
+    return data.get("comparative_categories") or []
 
-    data = sdk.run_json(system, user, schema_hint=AXIAL_SCHEMA, attempts=attempts, timeout_s=timeout_s)
-    return data.get("categories") or []
 
-
-SELECTIVE_SCHEMA = "{""core_story"": str, ""supporting_quotes"": [str]}"
-
-
-def run_selective_coding(
+def run_comparative_memos(
     *,
     sdk,
-    categories: List[Dict[str, Any]],
+    incident_notes: List[Dict[str, Any]],
+    comparative_categories: List[Dict[str, Any]],
+    study_background: str,
+    analysis_mode: str,
+    theoretical_framework: str,
+    transcript_summaries: Optional[Dict[str, str]] = None,
+    attempts: int = 2,
+    timeout_s: float = 120.0,
+) -> List[Dict[str, Any]]:
+    system = (
+        "Generate constant-comparative analytic memos. For each memo, indicate the focus (category, property, relationship, or process), list the comparisons considered, synthesize insights, and note remaining questions or sampling needs. "
+        + _mode_instruction(analysis_mode, "memoing")
+        + "Return ONLY JSON following the supplied schema."
+    )
+    payload = {
+        "study_background": study_background,
+        "theoretical_framework": theoretical_framework if analysis_mode != "classic" else "",
+        "incident_notes": incident_notes,
+        "comparative_categories": comparative_categories,
+        "transcript_summaries": transcript_summaries or {},
+        "instructions": (
+            "Produce 3–6 rich memos capturing ongoing comparisons, theoretical leverage, unresolved tensions, and next steps."
+        ),
+        "schema": MEMO_SCHEMA,
+    }
+    user = json.dumps(payload, ensure_ascii=False)
+    data = sdk.run_json(system, user, schema_hint=MEMO_SCHEMA, attempts=attempts, timeout_s=timeout_s)
+    return data.get("comparative_memos") or []
+
+
+def run_cca_synthesis(
+    *,
+    sdk,
+    incident_notes: List[Dict[str, Any]],
+    comparative_categories: List[Dict[str, Any]],
+    comparative_memos: List[Dict[str, Any]],
     cac_enabled: bool,
     study_background: str,
     analysis_mode: str,
     theoretical_framework: str,
     transcript_summaries: Optional[Dict[str, str]] = None,
     attempts: int = 2,
-    timeout_s: float = 60.0,
+    timeout_s: float = 150.0,
 ) -> Dict[str, Any]:
     system = (
-        "You are a grounded-theory expert performing SELECTIVE CODING. "
-        "Write a multi-paragraph CORE STORY in a clear academic style. "
-        "A CORE STORY is an emergent theory: a coherent, explanatory account that integrates "
-        "all major categories and subcategories derived from OPEN and AXIAL coding "
-        "The account must be entirely grounded in the coded transcripts—do not import external "
-        "concepts, literature, or top-down assumptions. "
-        "There are only two exceptions: One is when the user enables the CAC option, in which "
-        "case the CORE STORY will consider potential condition-action-control relationships between the categories. "
-        "The other is when the user selects the interpretive or constructionist analysis mode, in which case "
-        "the CORE STORY will consider the theoretical framework provided by the user. "
-        "Requirements: "
-        "1. Identify the CORE CATEGORY (the central organizing idea) and explain why it is core "
-        "(e.g., its reach, explanatory power, or frequency across participants), using evidence "
-        "drawn from the coded data. "
-        "2. Integrate all relevant categories by clarifying their relationships "
-        "to the core category (e.g., association, contrast, sequence, enabling/limiting relation), "
-        "without forcing any specific schema. "
-        "3. Support every major analytic claim with data-based evidence from OPEN CODES and "
-        "the categories identified in AXIAL coding. "
-        "Include negative/deviant or contrasting cases when they refine or bound the theory. "
-        "3. Maintain analytic abstraction: name concepts clearly, but trace each abstraction back "
-        "to the underlying categories and open codes that warrant it. "
-        "4. Specify scope conditions and boundaries of the theory as indicated by the data "
-        "(e.g., when, where, for whom it seems to hold), and note important variations. "
-        "5. Do not introduce new categories that were not previously identified; if a higher-level "
-        "integration label is proposed, explicitly link it to existing categories/open codes. "
-        "6. Keep the tone precise and non-speculative; avoid claims not supported by the coded data. "
-        "7. Length: Use as much detail as necessary for a rigorous, cohesive theoretical narrative. "
-        "8. Output: prose only (no bullet lists unless used briefly for clarity). "              
-        "If CAC is enabled, explicitly structure around Condition-Action-Consequence when possible, "
-        "but only apply CAC reasoning when such relationships genuinely exist. "
-        "Use only the provided quotes (no new quotes). "
-        "You may also use the provided transcript summaries as background context to ground the narrative. "
-        f"Analysis mode: {analysis_mode}. "
-        + ("Apply the theoretical framework consistently in your selective coding. " if analysis_mode == "constructionist" else "Apply the theoretical framework suggestively in your selective coding, if and only if it deems relevant and useful. " if analysis_mode == "interpretive" else "Use classic grounded-theory (no framework). ")
-        + "Return ONLY JSON in the described schema. "
-        f"CAC enabled: {cac_enabled}. "
+        "Integrate the constant comparative analysis into a single concise narrative paragraph. "
+        "Explain how the major comparative categories relate, interact, reinforce, or contrast with one another. "
+        "If CAC is enabled, weave in any data-supported condition–action–consequence relationships naturally within the same paragraph. "
+        + _mode_instruction(analysis_mode, "theoretical integration")
+        + "Return ONLY JSON following the supplied schema."
     )
-    cats = [
-        {"name": c.get("name"), "description": c.get("description"), "supporting_quotes": (c.get("supporting_quotes") or [])[:5]}
-        for c in categories
-    ]
-    user = json.dumps(
-        {
-            "study_background": study_background,
-            "theoretical_framework": theoretical_framework if analysis_mode != "classic" else "",
-            "cac_enabled": bool(cac_enabled),
-            "categories": cats,
-            "transcript_summaries": transcript_summaries or {},
-            "schema": SELECTIVE_SCHEMA,
-        },
-        ensure_ascii=False,
-    )
-    data = sdk.run_json(system, user, schema_hint=SELECTIVE_SCHEMA, attempts=attempts, timeout_s=timeout_s)
-    return {"core_story": data.get("core_story", ""), "supporting_quotes": data.get("supporting_quotes", [])}
+    payload = {
+        "study_background": study_background,
+        "theoretical_framework": theoretical_framework if analysis_mode != "classic" else "",
+        "cac_enabled": bool(cac_enabled),
+        "incident_notes": incident_notes,
+        "comparative_categories": comparative_categories,
+        "comparative_memos": comparative_memos,
+        "transcript_summaries": transcript_summaries or {},
+        "instructions": (
+            "Write a single-paragraph comparative summary focusing on interactions, contrasts, or hierarchies among the major categories, grounding each claim in comparative insights."
+        ),
+        "schema": SYNTHESIS_SCHEMA,
+    }
+    user = json.dumps(payload, ensure_ascii=False)
+    data = sdk.run_json(system, user, schema_hint=SYNTHESIS_SCHEMA, attempts=attempts, timeout_s=timeout_s)
+    return {"comparative_summary": data.get("comparative_summary", "")}
 
 
-# Comprehensive transcript summarization used as background for axial and selective phases
-SUMMARY_SCHEMA = "{""summary"": str}"
+SUMMARY_SCHEMA = "{\"summary\": str}"
 _TOKEN_RE = re.compile(r"\S+")
 
 
@@ -193,7 +187,15 @@ def _limit_tokens(text: str, max_tokens: int) -> str:
     return text[:cutoff].rstrip()
 
 
-def summarize_transcript(*, sdk, transcript_name: str, text: str, attempts: int = 1, timeout_s: float = 120.0, max_tokens: int = 2000) -> str:
+def summarize_transcript(
+    *,
+    sdk,
+    transcript_name: str,
+    text: str,
+    attempts: int = 1,
+    timeout_s: float = 120.0,
+    max_tokens: int = 2000,
+) -> str:
     system = (
         "You produce a comprehensive multi-paragraph academic-style summary of an interview transcript. "
         "Capture key themes, trajectories, tensions, and contextual nuances. Maintain neutrality and avoid speculation. JSON only."
@@ -218,11 +220,18 @@ def summarize_transcript(*, sdk, transcript_name: str, text: str, attempts: int 
     return _limit_tokens(summary, max_tokens)
 
 
-# Refinement of study background and theoretical framework to optimize clarity and flow
-REFINE_CTX_SCHEMA = "{""study_background"": str, ""theoretical_framework"": str}"
+REFINE_CTX_SCHEMA = "{\"study_background\": str, \"theoretical_framework\": str}"
 
 
-def refine_context(*, sdk, study_background: str, theoretical_framework: str, analysis_mode: str, attempts: int = 1, timeout_s: float = 45.0) -> Dict[str, str]:
+def refine_context(
+    *,
+    sdk,
+    study_background: str,
+    theoretical_framework: str,
+    analysis_mode: str,
+    attempts: int = 1,
+    timeout_s: float = 45.0,
+) -> Dict[str, str]:
     system = (
         "You rewrite provided academic context to optimize clarity, flow, and coherence while preserving meaning. "
         "Return polished text suitable for use in qualitative analysis prompts. JSON only."

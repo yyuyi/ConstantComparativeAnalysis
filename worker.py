@@ -19,8 +19,19 @@ try:
     from . import config  # package import
     from .rag.vector_store import VectorIndex
     from .agents.sdk import AgentSDK
-    from .agents.coder_agent import run_open_coding, run_axial_coding, run_selective_coding
-    from .agents.synth_agent import synthesize_categories, synthesize_core_story, synthesize_open_codes
+    from .agents.coder_agent import (
+        run_incident_coding,
+        run_category_comparison,
+        run_comparative_memos,
+        run_cca_synthesis,
+        summarize_transcript,
+    )
+    from .agents.synth_agent import (
+        synthesize_incident_patterns,
+        synthesize_category_matrix,
+        synthesize_memo_digest,
+        synthesize_cca_summary,
+    )
     # from .agents.stats_agent import build_summary
     from .agents.tools import write_json_txt, build_segment_maps
 except Exception:
@@ -30,8 +41,19 @@ except Exception:
         import configure as config  # optional alias if renamed
     from rag.vector_store import VectorIndex
     from agents.sdk import AgentSDK
-    from agents.coder_agent import run_open_coding, run_axial_coding, run_selective_coding
-    from agents.synth_agent import synthesize_categories, synthesize_core_story, synthesize_open_codes
+    from agents.coder_agent import (
+        run_incident_coding,
+        run_category_comparison,
+        run_comparative_memos,
+        run_cca_synthesis,
+        summarize_transcript,
+    )
+    from agents.synth_agent import (
+        synthesize_incident_patterns,
+        synthesize_category_matrix,
+        synthesize_memo_digest,
+        synthesize_cca_summary,
+    )
     # from agents.stats_agent import build_summary
     from agents.tools import write_json_txt, build_segment_maps
 
@@ -167,10 +189,6 @@ def run_job(run_dir: Path) -> None:
     # Build comprehensive per-transcript summaries (multi-paragraph) for use in axial and selective coding (obligatory)
     transcript_summaries: Dict[str, str] = {}
     try:
-        try:
-            from .agents.coder_agent import summarize_transcript  # package import
-        except Exception:
-            from agents.coder_agent import summarize_transcript  # top-level import
         _log(run_dir, "Generating comprehensive transcript summaries...")
         for name, text in transcript_raw.items():
             if (text or "").strip():
@@ -197,19 +215,22 @@ def run_job(run_dir: Path) -> None:
         cut = enders[max_sentences - 1].end()
         return t[:cut].strip()
 
-    def _normalize_open_blocks(blocks: Any) -> List[Dict[str, Any]]:
-        if isinstance(blocks, dict):
-            # Single object or keyed map
-            if {"transcript", "segment_number", "codes"}.issubset(blocks.keys()):
-                return [blocks]
-            values = list(blocks.values())
-            return [b for b in values if isinstance(b, dict)]
-        if isinstance(blocks, list):
-            return [b for b in blocks if isinstance(b, dict)]
+    def _normalize_incident_notes(notes: Any) -> List[Dict[str, Any]]:
+        if isinstance(notes, dict):
+            if {"transcript", "segment_number", "labels"}.issubset(notes.keys()):
+                return [notes]
+            values = list(notes.values())
+            return [v for v in values if isinstance(v, dict)]
+        if isinstance(notes, list):
+            return [v for v in notes if isinstance(v, dict)]
         return []
 
-    def _has_codes(blocks: List[Dict[str, Any]]) -> bool:
-        return any((isinstance(block.get("codes"), list) and block["codes"]) for block in blocks)
+    def _has_labels(notes: List[Dict[str, Any]]) -> bool:
+        for note in notes:
+            labels = note.get("labels")
+            if isinstance(labels, list) and any(str(lbl).strip() for lbl in labels):
+                return True
+        return False
 
     def _iter_chunks(items: List[Dict[str, Any]], size: int) -> List[List[Dict[str, Any]]]:
         if size <= 0:
@@ -224,15 +245,17 @@ def run_job(run_dir: Path) -> None:
             num = 0
         return (tx, num)
 
-    # Per-coder analysis agents
-    per_coder_open: List[List[Dict[str, Any]]] = []
+    # Per-coder analysis agents (constant comparative analysis pipeline)
+    per_coder_incidents: List[List[Dict[str, Any]]] = []
     per_coder_categories: List[List[Dict[str, Any]]] = []
-    per_coder_selective: List[Dict[str, Any]] = []
+    per_coder_memos: List[List[Dict[str, Any]]] = []
+    per_coder_syntheses: List[Dict[str, Any]] = []
 
     for i in range(1, coders + 1):
         coder_id = f"coder{i}"
-        _log(run_dir, f"[{coder_id}] Open coding (sequential segments)...")
-        oc_block_map: Dict[Tuple[str, int], Dict[str, Any]] = {}
+        _log(run_dir, f"[{coder_id}] Incident coding & comparisons...")
+        incident_map: Dict[Tuple[str, int], Dict[str, Any]] = {}
+        prior_incident_context: List[Dict[str, Any]] = []
         chunk_size = 1
         chunks = _iter_chunks(all_segments, chunk_size) if all_segments else []
         diag_msg: str | None = None
@@ -245,79 +268,73 @@ def run_job(run_dir: Path) -> None:
             seg_info = chunk[0] if chunk else {}
             seg_label = f"{seg_info.get('transcript','')}#{seg_info.get('segment_number','')}" if seg_info else "?"
             _log(run_dir, f"[{coder_id}] Segment {idx}/{len(chunks)} | {seg_label}")
-            chunk_blocks: List[Dict[str, Any]] = []
+            notes: List[Dict[str, Any]] = []
             for attempt in range(2):
-                chunk_blocks = run_open_coding(
+                notes = run_incident_coding(
                     sdk=sdk,
                     segments=chunk,
                     study_background=study_background,
                     analysis_mode=analysis_mode,
                     theoretical_framework=theoretical_framework,
                     transcript_summaries=chunk_summaries,
+                    prior_incidents=prior_incident_context[-20:],
                     attempts=2,
                     timeout_s=150.0,
                 )
-                chunk_blocks = _normalize_open_blocks(chunk_blocks)
+                notes = _normalize_incident_notes(notes)
                 diag_info = sdk.diagnostics() or {}
                 diag_msg = diag_info.get("last_error")
                 diag_raw = diag_info.get("last_raw")
-                if chunk_blocks and _has_codes(chunk_blocks):
+                if notes and _has_labels(notes):
                     break
                 if diag_msg or diag_raw:
                     msg = diag_msg or "no explicit error"
                     if diag_raw:
                         msg += f" | raw={diag_raw}"
-                    _log(run_dir, f"[{coder_id}] Chunk {idx} warning: {msg}")
+                    _log(run_dir, f"[{coder_id}] Incident note warning: {msg}")
                 if attempt < 1:
-                    _log(run_dir, f"[{coder_id}] Retrying chunk {idx}...")
-            if not chunk_blocks:
-                diag_info = sdk.diagnostics() or {}
-                diag_msg = diag_info.get("last_error")
-                diag_raw = diag_info.get("last_raw")
-                if diag_msg or diag_raw:
-                    msg = diag_msg or "no explicit error"
-                    if diag_raw:
-                        msg += f" | raw={diag_raw}"
-                    _log(run_dir, f"[{coder_id}] Chunk {idx} produced no usable codes: {msg}")
+                    _log(run_dir, f"[{coder_id}] Retrying incident comparison for segment {idx}...")
+            if not notes:
+                continue
             expected_tx = seg_info.get("transcript") if isinstance(seg_info, dict) else None
             expected_num = seg_info.get("segment_number") if isinstance(seg_info, dict) else None
-            for block in chunk_blocks or []:
+            for note in notes:
                 if expected_tx is not None:
-                    block["transcript"] = expected_tx
+                    note["transcript"] = expected_tx
                 if expected_num is not None:
-                    block["segment_number"] = expected_num
-                key = _segment_key(block)
-                if key not in oc_block_map or not oc_block_map[key].get("codes"):
-                    oc_block_map[key] = block
+                    note["segment_number"] = expected_num
+                labels = []
+                for lbl in note.get("labels", []) or []:
+                    lbl_text = str(lbl).strip()
+                    if lbl_text:
+                        labels.append(lbl_text)
+                note["labels"] = labels
+                key = _segment_key(note)
+                if key not in incident_map or not incident_map[key].get("labels"):
+                    incident_map[key] = note
+                for lbl in labels:
+                    prior_incident_context.append(
+                        {
+                            "label": lbl,
+                            "transcript": note.get("transcript"),
+                            "segment_number": note.get("segment_number"),
+                            "analytic_memo": note.get("analytic_memo", ""),
+                        }
+                    )
+            if len(prior_incident_context) > 60:
+                prior_incident_context = prior_incident_context[-60:]
 
         ordered_keys = [_segment_key(seg) for seg in all_segments]
-        oc_blocks = [oc_block_map[key] for key in ordered_keys if key in oc_block_map]
-        if all_segments and not (oc_blocks and _has_codes(oc_blocks)) and diag_msg:
-            _log(run_dir, f"[{coder_id}] Open coding warning: {diag_msg}")
-        # normalize to list of {code, transcript, segment_number}
-        oc: List[Dict[str, Any]] = []
-        for block in oc_blocks:
-            codes_field = (block.get("codes") or [])
-            for citem in codes_field[:3]:
-                code_text = str(citem).strip() if not isinstance(citem, dict) else str(citem.get("code", "")).strip()
-                seg_num = block.get("segment_number")
-                tx = block.get("transcript")
-                if not code_text:
-                    continue
-                oc.append({
-                    "code": code_text,
-                    "segment_number": seg_num,
-                    "transcript": tx,
-                })
-        write_json_txt(run_dir, f"open_coding_{coder_id}.txt", {"coder": coder_id, "open_codes": oc})
+        incident_records = [incident_map[key] for key in ordered_keys if key in incident_map]
+        write_json_txt(run_dir, f"incident_coding_{coder_id}.txt", {"coder": coder_id, "incident_notes": incident_records})
 
-        _log(run_dir, f"[{coder_id}] Axial coding...")
+        _log(run_dir, f"[{coder_id}] Building comparative categories...")
         cats: List[Dict[str, Any]] = []
         for attempt in range(2):
             t0 = time.time()
-            cats = run_axial_coding(
+            cats = run_category_comparison(
                 sdk=sdk,
-                open_codes=oc,
+                incident_notes=incident_records,
                 max_categories=max_categories,
                 study_background=study_background,
                 analysis_mode=analysis_mode,
@@ -326,82 +343,111 @@ def run_job(run_dir: Path) -> None:
                 attempts=1,
                 timeout_s=240.0,
             )
-            _log(run_dir, f"[{coder_id}] Axial response in {time.time()-t0:.2f}s; categories={len(cats) if cats else 0}.")
-            if cats and all(c.get("name") for c in cats):
+            _log(run_dir, f"[{coder_id}] Category response in {time.time()-t0:.2f}s; categories={len(cats) if cats else 0}.")
+            if cats:
                 break
-            _log(run_dir, f"[{coder_id}] Retrying axial coding (attempt {attempt + 2})...")
-        # RAG + LLM (batched): attach quotes by querying the vector index once per category, then batch extract
+            _log(run_dir, f"[{coder_id}] Retrying category comparison (attempt {attempt + 2})...")
+
         QUOTES_BATCH_SCHEMA = "{\"quotes_by_category\": [{\"index\": int, \"quotes\": [str]}]}"
         payload_items = []
         for idx, cat in enumerate(cats):
-            query = (cat.get("name", "") or "") + "\n\n" + (cat.get("description", "") or "")
-            results = vindex.query(text=query, k=getattr(_cfg, 'RAG_K_DEFAULT', 2))
-            contexts = [t for (t, m) in results if t and t.strip()]
-            payload_items.append({
-                "index": idx,
-                "category": {"name": cat.get("name", ""), "description": cat.get("description", "")},
-                "contexts": contexts,
-            })
+            name = cat.get("name", "") or ""
+            props = "\n".join(str(p) for p in (cat.get("defining_properties") or []) if str(p).strip())
+            insights = "\n".join(str(p) for p in (cat.get("comparative_insights") or []) if str(p).strip())
+            query_parts = [name, props, insights]
+            query = "\n\n".join(part for part in query_parts if part)
+            results = vindex.query(text=query, k=getattr(_cfg, "RAG_K_DEFAULT", 2))
+            contexts = [t for (t, _meta) in results if t and t.strip()]
+            payload_items.append(
+                {
+                    "index": idx,
+                    "category": {"name": name, "definition": props, "insights": insights},
+                    "contexts": contexts,
+                }
+            )
         if payload_items:
             system = (
-                "You extract short, faithful quotes for grounded-theory categories. "
-                "Given category names/descriptions and several transcript contexts per category, return 1–3 quotes (each 1–3 sentences) per category that are VERBATIM substrings of the provided contexts. "
-                "Prefer interviewee speech; exclude interviewer prompts. JSON only."
+                "Extract 1–3 verbatim quotes per category that best evidence the comparative insight. "
+                "Quotes must be substrings of the provided contexts, prioritise participant speech, and limit each quote to ≤ 3 sentences. JSON only."
             )
             user = json.dumps({"items": payload_items, "schema": QUOTES_BATCH_SCHEMA}, ensure_ascii=False)
             t0 = time.time()
             data = sdk.run_json(system, user, schema_hint=QUOTES_BATCH_SCHEMA, attempts=1, timeout_s=240.0)
             _log(run_dir, f"[{coder_id}] Quote batch response in {time.time()-t0:.2f}s.")
-            by_cat = {int(row.get("index", -1)): [str(q).strip() for q in (row.get("quotes") or []) if str(q).strip()] for row in (data.get("quotes_by_category") or [])}
+            by_cat = {
+                int(row.get("index", -1)): [str(q).strip() for q in (row.get("quotes") or []) if str(q).strip()]
+                for row in (data.get("quotes_by_category") or [])
+            }
             for idx, cat in enumerate(cats):
                 qlist = (by_cat.get(idx) or [])[:3]
-                cat["supporting_quotes"] = [q for q in ([_trim_to_sentences(q, 3) for q in qlist] if qlist else []) if q and q.strip()]
-        write_json_txt(run_dir, f"axial_coding_{coder_id}.txt", {"coder": coder_id, "categories": cats})
+                cat["supporting_quotes"] = [
+                    q for q in ([_trim_to_sentences(q, 3) for q in qlist] if qlist else []) if q and q.strip()
+                ]
+        write_json_txt(run_dir, f"category_comparisons_{coder_id}.txt", {"coder": coder_id, "comparative_categories": cats})
 
-        _log(run_dir, f"[{coder_id}] Selective coding...")
-        sel: Dict[str, Any] = {}
+        _log(run_dir, f"[{coder_id}] Writing comparative memos...")
+        memos: List[Dict[str, Any]] = []
         for attempt in range(2):
-            sel = run_selective_coding(
+            memos = run_comparative_memos(
                 sdk=sdk,
-                categories=cats,
-                cac_enabled=cac_enabled,
+                incident_notes=incident_records,
+                comparative_categories=cats,
                 study_background=study_background,
                 analysis_mode=analysis_mode,
                 theoretical_framework=theoretical_framework,
                 transcript_summaries=transcript_summaries,
                 attempts=1,
-                timeout_s=180.0,
+                timeout_s=200.0,
             )
-            if sel.get("core_story"):
+            if memos:
                 break
-            _log(run_dir, f"[{coder_id}] Retrying selective coding (attempt {attempt + 2})...")
-        write_json_txt(run_dir, f"selective_coding_{coder_id}.txt", {"coder": coder_id, **sel})
+            _log(run_dir, f"[{coder_id}] Retrying memo generation (attempt {attempt + 2})...")
+        write_json_txt(run_dir, f"cca_memos_{coder_id}.txt", {"coder": coder_id, "comparative_memos": memos})
 
-        per_coder_open.append(oc)
+        _log(run_dir, f"[{coder_id}] Synthesizing comparative findings...")
+        synthesis = run_cca_synthesis(
+            sdk=sdk,
+            incident_notes=incident_records,
+            comparative_categories=cats,
+            comparative_memos=memos,
+            cac_enabled=cac_enabled,
+            study_background=study_background,
+            analysis_mode=analysis_mode,
+            theoretical_framework=theoretical_framework,
+            transcript_summaries=transcript_summaries,
+            attempts=1,
+            timeout_s=220.0,
+        )
+        write_json_txt(run_dir, f"cca_synthesis_{coder_id}.txt", {"coder": coder_id, **synthesis})
+
+        per_coder_incidents.append(incident_records)
         per_coder_categories.append(cats)
-        per_coder_selective.append(sel)
+        per_coder_memos.append(memos)
+        per_coder_syntheses.append(synthesis)
 
     # Integration (report removed) with robust error handling
     try:
         integrated_counts: Dict[str, int] | None = None
-        merged_categories: List[Dict[str, Any]] = []
-        merged_core: Dict[str, Any] = {}
+        incident_patterns: Dict[str, Any] = {}
+        merged_categories: Dict[str, Any] = {}
+        memo_digest: Dict[str, Any] = {}
+        merged_summary: Dict[str, Any] = {}
 
         if coders > 1:
-            _log(run_dir, "Integrating open codes...")
-            open_synth = synthesize_open_codes(
+            _log(run_dir, "Integrating incident patterns across coders...")
+            incident_patterns = synthesize_incident_patterns(
                 sdk=sdk,
-                per_coder_codes=per_coder_open,
+                per_coder_incidents=per_coder_incidents,
                 analysis_mode=analysis_mode,
                 theoretical_framework=theoretical_framework,
                 attempts=1,
                 timeout_s=120.0,
             )
-            write_json_txt(run_dir, "integrated_open_codes.txt", open_synth)
+            write_json_txt(run_dir, "integrated_incident_patterns.txt", incident_patterns)
 
-            _log(run_dir, "Synthesizing categories across coders...")
+            _log(run_dir, "Integrating comparative categories...")
             for attempt in range(2):
-                merged_categories = synthesize_categories(
+                merged_categories = synthesize_category_matrix(
                     sdk=sdk,
                     per_coder_categories=per_coder_categories,
                     analysis_mode=analysis_mode,
@@ -409,39 +455,52 @@ def run_job(run_dir: Path) -> None:
                     attempts=1,
                     timeout_s=150.0,
                 )
-                if merged_categories:
+                if merged_categories.get("categories"):
                     break
-                _log(run_dir, f"Retry category synthesis (attempt {attempt + 2})...")
-            write_json_txt(run_dir, "integrated_categories.txt", {"categories": merged_categories, "count": len(merged_categories)})
+                _log(run_dir, f"Retry category integration (attempt {attempt + 2})...")
+            write_json_txt(run_dir, "integrated_categories.txt", merged_categories)
 
-            _log(run_dir, "Synthesizing integrated core story...")
-            for attempt in range(2):
-                merged_core = synthesize_core_story(
-                    sdk=sdk,
-                    per_coder_stories=per_coder_selective,
-                    cac_enabled=cac_enabled,
-                    analysis_mode=analysis_mode,
-                    theoretical_framework=theoretical_framework,
-                    attempts=1,
-                    timeout_s=150.0,
-                )
-                if merged_core.get("core_story"):
-                    break
-                _log(run_dir, f"Retry core story synthesis (attempt {attempt + 2})...")
-            write_json_txt(run_dir, "integrated_core_story.txt", {"core_story": merged_core.get("core_story", "")})
+            _log(run_dir, "Integrating comparative memos...")
+            memo_digest = synthesize_memo_digest(
+                sdk=sdk,
+                per_coder_memos=per_coder_memos,
+                analysis_mode=analysis_mode,
+                theoretical_framework=theoretical_framework,
+                attempts=1,
+                timeout_s=120.0,
+            )
+            write_json_txt(run_dir, "integrated_memo_digest.txt", memo_digest)
+
+            _log(run_dir, "Synthesizing comparative summary...")
+            merged_summary = synthesize_cca_summary(
+                sdk=sdk,
+                per_coder_syntheses=per_coder_syntheses,
+                analysis_mode=analysis_mode,
+                theoretical_framework=theoretical_framework,
+                attempts=1,
+                timeout_s=150.0,
+            )
+            write_json_txt(run_dir, "integrated_cca_summary.txt", merged_summary)
 
             integrated_counts = {
-                "open_codes": len((open_synth.get("open_codes") or [])),
-                "categories": len(merged_categories),
-                "core_story": 1 if (merged_core.get("core_story") or "").strip() else 0,
+                "incident_patterns": len((incident_patterns.get("incident_patterns") or [])),
+                "categories": len((merged_categories.get("categories") or [])),
+                "memo_digest": len((memo_digest.get("memo_digest") or [])),
+                "summary": 1 if (merged_summary.get("comparative_summary") or "").strip() else 0,
             }
 
         per_coder_counts: Dict[str, Dict[str, int]] = {}
-        for i, (oc, cats, sel) in enumerate(zip(per_coder_open, per_coder_categories, per_coder_selective), start=1):
+        for i, (inc, cats, memos, synth) in enumerate(
+            zip(per_coder_incidents, per_coder_categories, per_coder_memos, per_coder_syntheses), start=1
+        ):
+            label_total = sum(len(note.get("labels") or []) for note in inc)
+            if not label_total:
+                label_total = len(inc)
             per_coder_counts[f"coder{i}"] = {
-                "open_codes": len(oc),
+                "incidents": label_total,
                 "categories": len(cats),
-                "core_story": 1 if (sel.get("core_story") or "").strip() else 0,
+                "memos": len(memos),
+                "summary": 1 if (synth.get("comparative_summary") or "").strip() else 0,
             }
 
         mode_val = analysis_mode
@@ -449,36 +508,37 @@ def run_job(run_dir: Path) -> None:
         settings = (
             f"Analysis settings: {coders} coders; analysis_mode = \"{mode_val}\"; "
             f"cac_enabled = {cac_val}; max_categories = {max_categories}; "
-            f"segment_length = {segment_len}; model = \"{model}\"."
+            f"segment_length = {segment_len}; model = \"{model}\"; method = CCA."
         )
 
         if coders == 2:
-            c1 = per_coder_counts.get("coder1", {"open_codes": 0, "categories": 0, "core_story": 0})
-            c2 = per_coder_counts.get("coder2", {"open_codes": 0, "categories": 0, "core_story": 0})
+            c1 = per_coder_counts.get("coder1", {"incidents": 0, "categories": 0, "memos": 0, "summary": 0})
+            c2 = per_coder_counts.get("coder2", {"incidents": 0, "categories": 0, "memos": 0, "summary": 0})
             per_coder_line = (
                 "Per-coder counts: "
-                f"coder1(open_codes={c1['open_codes']}, categories={c1['categories']}, core_story={c1['core_story']}); "
-                f"coder2(open_codes={c2['open_codes']}, categories={c2['categories']}, core_story={c2['core_story']})."
+                f"coder1(incidents={c1['incidents']}, categories={c1['categories']}, memos={c1['memos']}, summary={c1['summary']}); "
+                f"coder2(incidents={c2['incidents']}, categories={c2['categories']}, memos={c2['memos']}, summary={c2['summary']})."
             )
         else:
-            pc = per_coder_counts.get("coder1", {"open_codes": 0, "categories": 0, "core_story": 0})
+            pc = per_coder_counts.get("coder1", {"incidents": 0, "categories": 0, "memos": 0, "summary": 0})
             per_coder_line = (
                 "Per-coder counts: "
-                f"coder1(open_codes={pc['open_codes']}, categories={pc['categories']}, core_story={pc['core_story']})."
+                f"coder1(incidents={pc['incidents']}, categories={pc['categories']}, memos={pc['memos']}, summary={pc['summary']})."
             )
 
         summary_parts = [settings, per_coder_line]
         if integrated_counts is not None:
             integrated_line = (
-                "Integrated counts (post-integration): "
-                f"open_codes = {integrated_counts['open_codes']}; "
+                "Integrated counts: "
+                f"incident_patterns = {integrated_counts['incident_patterns']}; "
                 f"categories = {integrated_counts['categories']}; "
-                f"core_story = {integrated_counts['core_story']}."
+                f"memo_digest = {integrated_counts['memo_digest']}; "
+                f"summary = {integrated_counts['summary']}."
             )
             summary_parts.append(integrated_line)
         else:
             _log(run_dir, "Single coder run; skipping integrated synthesis.")
-            summary_parts.append("Integrated analysis skipped (single coder run).")
+            summary_parts.append("Integrated synthesis skipped (single coder run).")
 
         summary_text = " ".join(summary_parts)
         write_json_txt(run_dir, "analysis_summary.txt", {"summary": summary_text})

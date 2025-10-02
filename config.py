@@ -11,8 +11,8 @@ MODEL_OPTIONS = [
     "gpt-4o",
     "gpt-4o-mini",
 ]
-SEGMENT_LENGTH_OPTIONS = [1000, 2000, 3000, 4000, 5000]
-SEGMENT_LENGTH_DEFAULT = 3000
+SEGMENT_LENGTH_OPTIONS = [500, 1000, 2000, 3000, 4000, 5000]
+SEGMENT_LENGTH_DEFAULT = 1000
 # If <= 0, treat as AUTO (no max; agent decides best number)
 MAX_CATEGORIES_DEFAULT = 0
 # Text limits to keep context concise for the agents
