@@ -167,9 +167,9 @@ def start() -> str:
         try:
             import importlib
 
-            job_path = "grounded_theory_agent.worker_entry.run_queued_job"
+            job_path = "constant_comparative_analysis_agent.worker_entry.run_queued_job"
             try:
-                importlib.import_module("grounded_theory_agent.worker_entry")
+                importlib.import_module("constant_comparative_analysis_agent.worker_entry")
             except ModuleNotFoundError:
                 job_path = "worker_entry.run_queued_job"
 

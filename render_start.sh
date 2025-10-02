@@ -5,7 +5,7 @@ set -euo pipefail
 # Make the repo root importable
 export PYTHONPATH="${PYTHONPATH:-}:$(pwd)"
 
-QUEUE_NAME="${RQ_QUEUE_NAME:-grounded_theory}"
+QUEUE_NAME="${RQ_QUEUE_NAME:-constant_comparative_analysis}"
 REDIS_URL="${REDIS_URL:-redis://127.0.0.1:6379/0}"
 PORT="${PORT:-5000}"
 WEB_CONCURRENCY="${WEB_CONCURRENCY:-2}"
@@ -19,7 +19,7 @@ import importlib
 from pathlib import Path
 
 module = None
-for name in ("config", "grounded_theory_agent.config"):
+for name in ("config", "constant_comparative_analysis_agent.config"):
     try:
         module = importlib.import_module(name)
         break
@@ -36,7 +36,7 @@ PY
 APP_MODULE=$(python - <<'PY'
 import importlib.util
 
-for name in ("grounded_theory_agent.app", "app"):
+for name in ("constant_comparative_analysis_agent.app", "app"):
     try:
         spec = importlib.util.find_spec(name)
     except ModuleNotFoundError:

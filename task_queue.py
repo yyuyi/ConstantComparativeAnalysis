@@ -35,7 +35,7 @@ def get_queue() -> Optional["Queue"]:
         return None
     connection = redis.from_url(url)
     return Queue(
-        name=getattr(config, "RQ_QUEUE_NAME", "grounded_theory"),
+        name=getattr(config, "RQ_QUEUE_NAME", "constant_comparative_analysis"),
         connection=connection,
         default_timeout=getattr(config, "RQ_DEFAULT_TIMEOUT", 900),
     )
