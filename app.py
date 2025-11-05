@@ -78,6 +78,8 @@ def index() -> str:
         default_segment_len=config.SEGMENT_LENGTH_DEFAULT,
         segment_length_options=getattr(config, "SEGMENT_LENGTH_OPTIONS", [config.SEGMENT_LENGTH_DEFAULT]),
         default_max_categories=config.MAX_CATEGORIES_DEFAULT,
+        default_api_tier=getattr(config, "DEFAULT_API_TIER", 1),
+        api_tier_options=getattr(config, "API_TIER_OPTIONS", (1,)),
     )
 
 
@@ -106,6 +108,12 @@ def start() -> str:
         segment_len = config.SEGMENT_LENGTH_DEFAULT
     model = request.form.get("model", config.DEFAULT_MODEL).strip()
     api_key = request.form.get("openai_api_key", "").strip()
+    # API Tier and concurrency
+    api_tier = _safe_int(request.form.get("api_tier"), getattr(config, "DEFAULT_API_TIER", 1))
+    tier_options = set(getattr(config, "API_TIER_OPTIONS", (1,)))
+    if api_tier not in tier_options:
+        api_tier = getattr(config, "DEFAULT_API_TIER", 1)
+    tier_settings = getattr(config, "concurrency_for_tier", lambda _t: {"tier": api_tier, "summary": 2, "open": 12})(api_tier)
 
     # Create run directory
     base = Path(__file__).parent / config.OUTPUT_DIR
@@ -144,6 +152,9 @@ def start() -> str:
         "segment_length": segment_len,
         "model": model,
         "uploads": uploads,
+        "api_tier": tier_settings.get("tier", api_tier),
+        "summary_concurrency": tier_settings.get("summary", 2),
+        "open_coding_concurrency": tier_settings.get("open", 12),
     }
     # Persist the API key separately and do not include it in params.json
     (run_dir / "params.json").write_text(json.dumps(params, ensure_ascii=False, indent=2), encoding="utf-8")

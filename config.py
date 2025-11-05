@@ -31,3 +31,52 @@ RAG_K_DEFAULT = 2
 # Quality toggles
 # UI-based refinement happens before run; default disabled.
 REFINE_CONTEXT_ENABLED_DEFAULT = False
+
+# Concurrency controls (bounded via asyncio.Semaphore in worker)
+TIER_CONCURRENCY_PRESET = {
+    1: {"summary": 2, "open": 12},
+    2: {"summary": 20, "open": 120},
+    3: {"summary": 40, "open": 250},
+    4: {"summary": 100, "open": 600},
+    5: {"summary": 1800, "open": 9000},
+}
+
+
+def _sanitize_tier(value: int) -> int:
+    try:
+        val = int(value)
+    except Exception:
+        return 1
+    return val if val in TIER_CONCURRENCY_PRESET else 1
+
+
+def _sanitize_concurrency(value: str | None, fallback: int) -> int:
+    if value is None:
+        return fallback
+    try:
+        parsed = int(value)
+        return parsed if parsed > 0 else fallback
+    except Exception:
+        return fallback
+
+
+DEFAULT_API_TIER = _sanitize_tier(int(os.getenv("GT_API_TIER", "1")))
+
+
+def concurrency_for_tier(tier: int | None) -> dict:
+    """Return summary/open concurrency values for the requested tier with env overrides."""
+    resolved_tier = _sanitize_tier(tier if tier is not None else DEFAULT_API_TIER)
+    base = TIER_CONCURRENCY_PRESET[resolved_tier]
+    return {
+        "tier": resolved_tier,
+        "summary": _sanitize_concurrency(os.getenv("GT_SUMMARY_CONCURRENCY"), base["summary"]),
+        "open": _sanitize_concurrency(os.getenv("GT_OPEN_CODING_CONCURRENCY"), base["open"]),
+    }
+
+
+_DEFAULT_CONCURRENCY = concurrency_for_tier(DEFAULT_API_TIER)
+SUMMARY_CONCURRENCY = _DEFAULT_CONCURRENCY["summary"]
+OPEN_CODING_CONCURRENCY = _DEFAULT_CONCURRENCY["open"]
+
+# Expose tier options so the UI can render a selector.
+API_TIER_OPTIONS = tuple(sorted(TIER_CONCURRENCY_PRESET.keys()))

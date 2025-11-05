@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Tuple
 from datetime import datetime
 import time
 import re
+import asyncio
 
 # Ensure the current directory is on sys.path so absolute imports work on platforms like Render
 BASE_DIR = Path(__file__).resolve().parent
@@ -67,6 +68,34 @@ def _log(run_dir: Path, msg: str) -> None:
         f.write(f"[{ts}] {msg}\n")
 
 
+async def _run_sync_tasks(callables: List[Any], limit: int) -> Tuple[List[Any], List[Exception | None]]:
+    """Run blocking callables concurrently with a semaphore limiting concurrency."""
+    max_workers = max(1, int(limit) if isinstance(limit, int) else 1)
+    sem = asyncio.Semaphore(max_workers)
+    results: List[Any] = [None] * len(callables)
+    errors: List[Exception | None] = [None] * len(callables)
+
+    async def _runner(idx: int, fn: Any) -> None:
+        async with sem:
+            try:
+                results[idx] = await asyncio.to_thread(fn)
+            except Exception as exc:  # pragma: no cover - diagnostic logging handles visibility
+                errors[idx] = exc
+
+    await asyncio.gather(*(_runner(i, fn) for i, fn in enumerate(callables)))
+    return results, errors
+
+
+def _resolve_positive_int(value: Any, fallback: int) -> int:
+    try:
+        candidate = int(value)
+        if candidate > 0:
+            return candidate
+    except Exception:
+        pass
+    return fallback
+
+
 def run_job(run_dir: Path) -> None:
     try:
         params = json.loads((run_dir / "params.json").read_text(encoding="utf-8"))
@@ -81,6 +110,8 @@ def run_job(run_dir: Path) -> None:
     max_categories = int(params.get("max_categories", config.MAX_CATEGORIES_DEFAULT))
     segment_len = int(params.get("segment_length", config.SEGMENT_LENGTH_DEFAULT))
     model = params.get("model", config.DEFAULT_MODEL)
+    tier_info = config.concurrency_for_tier(params.get("api_tier"))
+    summary_concurrency = _resolve_positive_int(params.get("summary_concurrency"), tier_info["summary"])
 
     run_id = run_dir.name[4:] if run_dir.name.startswith("run_") else run_dir.name
     api_key_path = run_dir.parent / "_secrets" / f"{run_id}.secret"
@@ -104,6 +135,8 @@ def run_job(run_dir: Path) -> None:
         return
     sdk = AgentSDK(model=model, api_key=api_key)
     _log(run_dir, f"Agent SDK initialized | model={model} | key_present={'yes' if api_key else 'no'}")
+    open_coding_concurrency = _resolve_positive_int(params.get("open_coding_concurrency"), tier_info.get("open", summary_concurrency))
+    _log(run_dir, f"Concurrency | tier={tier_info['tier']} | summaries={summary_concurrency} | open_coding={open_coding_concurrency}")
 
 
     # Connectivity sanity check
@@ -143,7 +176,7 @@ def run_job(run_dir: Path) -> None:
     # No refinement here; if the user used the refine preview, the posted text is already refined.
 
     # Load transcripts and segment
-    all_segments: List[Dict[str, Any]] = []
+    all_segments_by_tx: List[List[Dict[str, Any]]] = []
     # per_tx_info no longer used
     transcript_raw: Dict[str, str] = {}
     _log(run_dir, "Loading, chunking, and indexing transcripts...")
@@ -180,21 +213,62 @@ def run_job(run_dir: Path) -> None:
         base = Path(name).stem
         segs = vindex.add_transcript(name=name, raw_text=raw_text, segment_len_tokens=segment_len)
         write_json_txt(run_dir, f"segments_{base}.txt", {"transcript": name, "segments": {str(s["segment_number"]): s["text"] for s in segs}})
-        all_segments.extend(segs)
+        all_segments_by_tx.append(segs)
         transcript_raw[name] = raw_text
 
     # Build segment maps (raw text only; coder agents decide interviewee vs interviewer)
-    by_key_map, _ = build_segment_maps(all_segments)
+    flat_all_segments: List[Dict[str, Any]] = [seg for group in all_segments_by_tx for seg in group]
+    by_key_map, _ = build_segment_maps(flat_all_segments)
 
     # Build comprehensive per-transcript summaries (multi-paragraph) for use in axial and selective coding (obligatory)
     transcript_summaries: Dict[str, str] = {}
     try:
-        _log(run_dir, "Generating comprehensive transcript summaries...")
-        for name, text in transcript_raw.items():
-            if (text or "").strip():
-                summary = summarize_transcript(sdk=sdk, transcript_name=name, text=text, attempts=1, timeout_s=240.0)
-                transcript_summaries[name] = summary
-            else:
+        # _log(run_dir, "Generating comprehensive transcript summaries...")
+        # for name, text in transcript_raw.items():
+        #     if (text or "").strip():
+        #         summary = summarize_transcript(sdk=sdk, transcript_name=name, text=text, attempts=1, timeout_s=240.0)
+        #         transcript_summaries[name] = summary
+        #     else:
+
+        non_empty_transcripts = [
+            (name, text)
+            for name, text in transcript_raw.items()
+            if (text or "").strip()
+        ]
+
+        if non_empty_transcripts:
+            _log(run_dir, "Generating comprehensive transcript summaries (parallel)...")
+            summary_limit = summary_concurrency
+
+            def _make_summary_callable(name: str, text: str):
+                def _call() -> Tuple[str, str]:
+                    local_sdk = AgentSDK(model=model, api_key=api_key)
+                    summary = summarize_transcript(
+                        sdk=local_sdk,
+                        transcript_name=name,
+                        text=text,
+                        attempts=1,
+                        timeout_s=240.0,
+                    )
+                    return name, summary
+
+                return _call
+
+            callables = [_make_summary_callable(name, text) for name, text in non_empty_transcripts]
+            results, errors = asyncio.run(_run_sync_tasks(callables, summary_limit))
+
+            for (name, _), err in zip(non_empty_transcripts, errors):
+                if err:
+                    _log(run_dir, f"Warning: transcript summary for {name} failed: {err}")
+
+            for item in results:
+                if item is not None:
+                    name, summary = item
+                    transcript_summaries[name] = summary
+
+        # Handle empty transcripts
+        for name in transcript_raw.keys():
+            if name not in transcript_summaries:
                 transcript_summaries[name] = ""
     except Exception as e:
         _log(run_dir, f"Warning: transcript summaries failed: {e}")
@@ -254,77 +328,80 @@ def run_job(run_dir: Path) -> None:
     for i in range(1, coders + 1):
         coder_id = f"coder{i}"
         _log(run_dir, f"[{coder_id}] Incident coding & comparisons...")
-        incident_map: Dict[Tuple[str, int], Dict[str, Any]] = {}
-        prior_incident_context: List[Dict[str, Any]] = []
-        chunk_size = 1
-        chunks = _iter_chunks(all_segments, chunk_size) if all_segments else []
-        diag_msg: str | None = None
-        for idx, chunk in enumerate(chunks, start=1):
-            chunk_summaries = {
-                str(seg.get("transcript")): transcript_summaries.get(str(seg.get("transcript")), "")
-                for seg in chunk
-                if transcript_summaries.get(str(seg.get("transcript")), "").strip()
-            }
-            seg_info = chunk[0] if chunk else {}
-            seg_label = f"{seg_info.get('transcript','')}#{seg_info.get('segment_number','')}" if seg_info else "?"
-            _log(run_dir, f"[{coder_id}] Segment {idx}/{len(chunks)} | {seg_label}")
-            notes: List[Dict[str, Any]] = []
-            for attempt in range(2):
-                notes = run_incident_coding(
-                    sdk=sdk,
-                    segments=chunk,
-                    study_background=study_background,
-                    analysis_mode=analysis_mode,
-                    theoretical_framework=theoretical_framework,
-                    transcript_summaries=chunk_summaries,
-                    prior_incidents=prior_incident_context[-20:],
-                    attempts=2,
-                    timeout_s=150.0,
-                )
-                notes = _normalize_incident_notes(notes)
-                diag_info = sdk.diagnostics() or {}
-                diag_msg = diag_info.get("last_error")
-                diag_raw = diag_info.get("last_raw")
-                if notes and _has_labels(notes):
-                    break
-                if diag_msg or diag_raw:
-                    msg = diag_msg or "no explicit error"
-                    if diag_raw:
-                        msg += f" | raw={diag_raw}"
-                    _log(run_dir, f"[{coder_id}] Incident note warning: {msg}")
-                if attempt < 1:
-                    _log(run_dir, f"[{coder_id}] Retrying incident comparison for segment {idx}...")
-            if not notes:
-                continue
-            expected_tx = seg_info.get("transcript") if isinstance(seg_info, dict) else None
-            expected_num = seg_info.get("segment_number") if isinstance(seg_info, dict) else None
-            for note in notes:
-                if expected_tx is not None:
-                    note["transcript"] = expected_tx
-                if expected_num is not None:
-                    note["segment_number"] = expected_num
-                labels = []
-                for lbl in note.get("labels", []) or []:
-                    lbl_text = str(lbl).strip()
-                    if lbl_text:
-                        labels.append(lbl_text)
-                note["labels"] = labels
-                key = _segment_key(note)
-                if key not in incident_map or not incident_map[key].get("labels"):
-                    incident_map[key] = note
-                for lbl in labels:
-                    prior_incident_context.append(
-                        {
-                            "label": lbl,
-                            "transcript": note.get("transcript"),
-                            "segment_number": note.get("segment_number"),
-                            "analytic_memo": note.get("analytic_memo", ""),
-                        }
+        # Process each transcript's segments serially, but run transcripts in parallel
+        def _process_one_transcript(tx_segments: List[Dict[str, Any]]) -> Dict[Tuple[str, int], Dict[str, Any]]:
+            # Dedicated SDK per worker to avoid cross-thread client state
+            local_sdk = AgentSDK(model=model, api_key=api_key)
+            local_incident_map: Dict[Tuple[str, int], Dict[str, Any]] = {}
+            local_prior: List[Dict[str, Any]] = []
+            chunk_size = 1
+            chunks_local = _iter_chunks(tx_segments, chunk_size) if tx_segments else []
+            for idx_local, chunk in enumerate(chunks_local, start=1):
+                chunk_summaries = {
+                    str(seg.get("transcript")): transcript_summaries.get(str(seg.get("transcript")), "")
+                    for seg in chunk
+                    if transcript_summaries.get(str(seg.get("transcript")), "").strip()
+                }
+                seg_info = chunk[0] if chunk else {}
+                notes: List[Dict[str, Any]] = []
+                for attempt in range(2):
+                    notes = run_incident_coding(
+                        sdk=local_sdk,
+                        segments=chunk,
+                        study_background=study_background,
+                        analysis_mode=analysis_mode,
+                        theoretical_framework=theoretical_framework,
+                        transcript_summaries=chunk_summaries,
+                        prior_incidents=local_prior[-20:],
+                        attempts=2,
+                        timeout_s=150.0,
                     )
-            if len(prior_incident_context) > 60:
-                prior_incident_context = prior_incident_context[-60:]
+                    notes = _normalize_incident_notes(notes)
+                    if notes and _has_labels(notes):
+                        break
+                if not notes:
+                    continue
+                expected_tx = seg_info.get("transcript") if isinstance(seg_info, dict) else None
+                expected_num = seg_info.get("segment_number") if isinstance(seg_info, dict) else None
+                for note in notes:
+                    if expected_tx is not None:
+                        note["transcript"] = expected_tx
+                    if expected_num is not None:
+                        note["segment_number"] = expected_num
+                    labels = []
+                    for lbl in note.get("labels", []) or []:
+                        lbl_text = str(lbl).strip()
+                        if lbl_text:
+                            labels.append(lbl_text)
+                    note["labels"] = labels
+                    key = _segment_key(note)
+                    if key not in local_incident_map or not local_incident_map[key].get("labels"):
+                        local_incident_map[key] = note
+                    for lbl in labels:
+                        local_prior.append(
+                            {
+                                "label": lbl,
+                                "transcript": note.get("transcript"),
+                                "segment_number": note.get("segment_number"),
+                                "analytic_memo": note.get("analytic_memo", ""),
+                            }
+                        )
+                if len(local_prior) > 60:
+                    local_prior = local_prior[-60:]
+            return local_incident_map
 
-        ordered_keys = [_segment_key(seg) for seg in all_segments]
+        per_tx_segments: List[List[Dict[str, Any]]] = [grp for grp in all_segments_by_tx if grp]
+        callables_tx = [
+            (lambda segs=grp: _process_one_transcript(segs)) for grp in per_tx_segments
+        ]
+        tx_results, tx_errors = asyncio.run(_run_sync_tasks(callables_tx, open_coding_concurrency))
+
+        incident_map: Dict[Tuple[str, int], Dict[str, Any]] = {}
+        for res in (tx_results or []):
+            if isinstance(res, dict):
+                incident_map.update(res)
+
+        ordered_keys = [_segment_key(seg) for seg in flat_all_segments]
         incident_records = [incident_map[key] for key in ordered_keys if key in incident_map]
         write_json_txt(run_dir, f"incident_coding_{coder_id}.txt", {"coder": coder_id, "incident_notes": incident_records})
 

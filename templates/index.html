@@ -85,6 +85,15 @@
             </select>
             <div class="help">Higher-capability models may yield better analytic quality.</div>
           </div>
+          <div class="field">
+            <label for="api_tier">OpenAI API Tier</label>
+            <select id="api_tier" name="api_tier">
+              {% for tier in api_tier_options %}
+                <option value="{{ tier }}" {% if tier == default_api_tier %}selected{% endif %}>Tier {{ tier }}</option>
+              {% endfor %}
+            </select>
+            <div class="help">Higher tiers allow higher parallelism. Check your tier at <a href="https://platform.openai.com/settings/organization/limits" target="_blank" rel="noopener noreferrer">OpenAI dashboard</a>.</div>
+          </div>
           </div>
         </details>
 
