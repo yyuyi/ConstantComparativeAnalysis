@@ -31,13 +31,16 @@ except Exception:
     from worker import run_job
 
 try:
-    from .task_queue import get_queue  # type: ignore
+    from .task_queue import get_queue, has_active_worker  # type: ignore
 except Exception:
     try:
-        from task_queue import get_queue  # type: ignore
+        from task_queue import get_queue, has_active_worker  # type: ignore
     except Exception:
         def get_queue():
             return None
+
+        def has_active_worker(_queue):
+            return False
 
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
@@ -172,6 +175,13 @@ def start() -> str:
         queue = get_queue()
     except Exception as exc:
         enqueue_error = str(exc)
+        queue = None
+
+    if queue and not has_active_worker(queue):
+        enqueue_error = (
+            f"Redis queue '{queue.name}' is reachable, but no active RQ worker is listening. "
+            "Check that the server start command launches an RQ worker and that RQ_QUEUE_NAME matches."
+        )
         queue = None
 
     if queue:
