@@ -19,6 +19,10 @@
       </section>
       <section class="panel downloads" id="downloads" style="display:none;">
         <h3>Generated Files</h3>
+        <div class="actions" style="margin-bottom:8px;">
+          <a class="btn" id="zip-download" href="#">Download Full Run ZIP</a>
+        </div>
+        <div class="help">Upload this ZIP directly into the standalone evaluation app.</div>
         <ul id="file-list"></ul>
         <div class="help">Written under: <code>{{ output_dir }}</code></div>
       </section>
@@ -29,6 +33,7 @@
       const logEl = document.getElementById('log');
       const dlEl = document.getElementById('downloads');
       const listEl = document.getElementById('file-list');
+      const zipEl = document.getElementById('zip-download');
       let done = false;
       // Apply skeleton while loading
       logEl.classList.add('skeleton');
@@ -44,6 +49,9 @@
           if (data.complete && !done) {
             done = true;
             dlEl.style.display = '';
+            if (zipEl) {
+              zipEl.href = {{ url_for('download_zip', run_id='__RUN__')|tojson }}.replace('__RUN__', runId);
+            }
             listEl.innerHTML = '';
             (data.files || []).forEach(fn => {
               const li = document.createElement('li');

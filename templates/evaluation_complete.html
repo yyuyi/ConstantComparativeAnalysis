@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CCA Evaluation Complete</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <main class="container">
+      <header>
+        <h1>Evaluation Complete</h1>
+        <p class="lede">Evaluation ID: <code>{{ eval_id }}</code></p>
+      </header>
+
+      <section class="panel downloads">
+        <h3>Generated Files</h3>
+        <ul>
+          <li><a href="{{ report_url }}" target="_blank" rel="noopener noreferrer">Open evaluation_report.html</a></li>
+          <li><a href="{{ report_download_url }}">Download evaluation_report.html</a></li>
+          <li><a href="{{ json_url }}">Download machine_evaluation.json</a></li>
+        </ul>
+        <div class="help">Written under: <code>{{ output_dir }}</code></div>
+      </section>
+
+      <div style="margin-top:10px;"><a href="{{ url_for('index') }}">&#8592; Back</a></div>
+    </main>
+  </body>
+</html>

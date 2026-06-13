@@ -1,0 +1,302 @@
+CCA Evaluation Rubric for LLM-Driven Constant Comparative Analysis
+Version: 2026-05-28
+
+Purpose
+This rubric evaluates whether an LLM-driven Constant Comparative Analysis (CCA) pipeline performs a credible comparative analytic process and produces traceable, coherent, data-grounded findings. Because the transcripts come from the same papers used in the prior Grounded Theory (GT) evaluation, some criteria overlap with GT evaluation, especially grounding, coherence, and category quality. However, the center of evaluation is different: CCA should be judged primarily by comparison fidelity, iterative differentiation, handling of variation, and auditability, not only by whether it reproduces the published article's final theory.
+
+Scoring Scale
+Use a 1-5 Likert score for each item.
+1 = poor or absent
+2 = weak/inconsistent
+3 = adequate but uneven
+4 = strong with minor gaps
+5 = excellent, systematic, and well evidenced
+
+How to Use the Published Articles
+The published article can be used as an external reference, but it should not be treated as a strict gold standard for every category or relationship. CCA may legitimately produce a different organization of incidents if the comparative trail is visible and evidence-grounded. Therefore, article alignment appears as one criterion only, not as the dominant evaluation logic.
+
+Overall Coverage Logic
+This rubric follows the CCA pipeline from incident coding to category construction, memoing, synthesis, cross-coder integration, and evaluation/audit. The criteria are intended to be collectively sufficient because they cover:
+1. Whether incidents are coded at the right analytic unit.
+2. Whether comparisons are actually performed.
+3. Whether comparisons cover the whole dataset, including early, late, cross-transcript, boundary, and negative cases.
+4. Whether categories emerge from incident comparisons rather than from premature theme listing.
+5. Whether evidence and quotes support claims.
+6. Whether memos and synthesis preserve analytic tensions and relationships.
+7. Whether cross-coder integration distinguishes convergence from divergence.
+8. Whether outputs are auditable and reproducible enough for a methods paper.
+
+The criteria are intended to be non-redundant because each item evaluates a distinct failure mode. For example, quote grounding checks whether evidence exists; comparison coverage checks whether the evidence was compared across the dataset; category boundary clarity checks whether categories are differentiated; synthesis coherence checks whether the final narrative integrates the differentiated categories.
+
+
+A. Incident-Level Constant Comparison
+
+A1. Incident Label Fit
+Question: Are incident labels specific, analytic, and appropriately tied to segment-level incidents rather than broad topic summaries?
+Anchors:
+1 = Labels are vague topics, generic keywords, or detached from the segment.
+3 = Labels usually fit the segment but sometimes collapse multiple analytic ideas or remain too descriptive.
+5 = Labels are concise, analytic, segment-grounded, and consistently capture meaningful incidents.
+Why CCA needs this: CCA starts with comparing incidents. If the incident labels are too broad or poorly matched, later comparisons and categories become unstable.
+Necessity: Necessary because all downstream comparison depends on the quality of the incident unit.
+Sufficiency contribution and non-overlap: This criterion covers the analytic adequacy of initial incident labels. It does not judge whether comparisons were made; that is covered by A2-A4.
+
+A2. Explicit Similarity and Difference Comparison
+Question: For each segment, does the output explicitly state how the incident is similar to and different from prior incidents?
+Anchors:
+1 = Comparison is absent or only says that something is "similar" without explanation.
+3 = Similarities and differences are present but uneven, formulaic, or limited to nearby incidents.
+5 = Similarities and differences are concrete, segment-specific, and analytically useful.
+Why CCA needs this: The defining operation of CCA is comparison. Coding alone is not enough.
+Necessity: Necessary because a system can produce good-looking codes without actually performing constant comparison.
+Sufficiency contribution and non-overlap: This criterion checks local comparison quality. It does not evaluate whether comparison spans the whole dataset; that is A3.
+
+A3. Full-Dataset Comparison Coverage
+Question: Does the analysis compare incidents across early, middle, and late parts of the dataset and across different transcripts, rather than relying only on recent context?
+Anchors:
+1 = Comparisons mainly reference immediately preceding or same-transcript incidents.
+3 = Some cross-transcript or earlier-incident comparison appears, but coverage is partial.
+5 = The analysis systematically compares recent incidents, retrieved earlier incidents, anchor cases, and cross-transcript cases.
+Why CCA needs this: CCA requires ongoing comparison across the dataset. A sliding window alone may overemphasize recent incidents and lose earlier analytic distinctions.
+Necessity: Necessary because it directly tests the collaborator's concern about whether the system performs true constant comparison rather than local incremental comparison.
+Sufficiency contribution and non-overlap: This criterion covers scope of comparison. It does not evaluate whether the comparisons are analytically meaningful; A2 and A4 address that.
+
+A4. Boundary and Negative Case Handling
+Question: Does the analysis identify incidents that challenge, complicate, or delimit emerging categories?
+Anchors:
+1 = No attention to exceptions, boundary cases, or contradictory incidents.
+3 = Some exceptions are mentioned but not integrated into category refinement.
+5 = Boundary and negative cases are explicitly used to sharpen categories, properties, or relationships.
+Why CCA needs this: Constant comparison is not only about finding similarity; it also refines categories by examining variation and difference.
+Necessity: Necessary because without negative or boundary cases, the analysis may become confirmatory and over-generalized.
+Sufficiency contribution and non-overlap: This criterion covers disconfirming and limiting evidence. It is distinct from A3 because broad coverage alone does not ensure attention to contradiction.
+
+
+B. Comparative Category Construction
+
+B1. Category Emergence from Incidents
+Question: Do categories clearly build from incident notes, labels, and comparison memos?
+Anchors:
+1 = Categories appear imposed, generic, or weakly linked to incident labels.
+3 = Categories are plausible but the path from incident to category is only partially visible.
+5 = Categories clearly synthesize multiple incidents and preserve the comparative logic that produced them.
+Why CCA needs this: CCA categories should be built by comparing incidents and grouping them around shared properties and differences.
+Necessity: Necessary because category building is the key bridge from incident coding to analytic explanation.
+Sufficiency contribution and non-overlap: This criterion covers vertical development from incidents to categories. B2 evaluates horizontal distinction among categories.
+
+B2. Category Boundary Clarity and Non-Redundancy
+Question: Are categories distinct from one another, with clear boundaries, defining properties, and limited redundancy?
+Anchors:
+1 = Categories overlap heavily or repeat the same analytic idea.
+3 = Categories are mostly distinct but some boundaries are unclear.
+5 = Categories are crisp, non-redundant, and differentiated by explicit properties or contrasts.
+Why CCA needs this: CCA depends on comparing categories as well as incidents. Overlapping categories weaken the analytic matrix.
+Necessity: Necessary because a CCA output can be grounded but still analytically inefficient if categories are redundant.
+Sufficiency contribution and non-overlap: This criterion covers category distinctiveness. It does not judge evidence support, which is C1-C2.
+
+B3. Comparative Properties and Dimensions
+Question: Does each category include properties, dimensions, or conditions that explain internal variation?
+Anchors:
+1 = Categories are named but lack properties or dimensions.
+3 = Some properties are listed, but they are descriptive or unevenly developed.
+5 = Categories include clear properties/dimensions that explain variation among incidents.
+Why CCA needs this: CCA refines categories by comparing their properties, not merely by naming themes.
+Necessity: Necessary because properties/dimensions make categories analytically useful and transferable beyond isolated examples.
+Sufficiency contribution and non-overlap: This criterion covers within-category analytic structure. B2 covers between-category boundaries.
+
+B4. Category-Level Comparative Insight
+Question: Do category descriptions explain how categories overlap, contrast, reinforce, or condition one another?
+Anchors:
+1 = Categories are isolated topic lists.
+3 = Some relationships are suggested but not consistently developed.
+5 = Category relationships and contrasts are explicit, evidence-grounded, and analytically meaningful.
+Why CCA needs this: CCA moves from incident comparison to category comparison; the system should show how categories relate.
+Necessity: Necessary because a list of categories is not yet a comparative analysis.
+Sufficiency contribution and non-overlap: This criterion covers relationships among categories. D2 evaluates the final synthesis of these relationships.
+
+
+C. Evidence, Traceability, and Audit Trail
+
+C1. Segment Traceability
+Question: Can each category and major analytic claim be traced back to transcript and segment identifiers?
+Anchors:
+1 = Segment references are absent or unreliable.
+3 = Most categories include support, but some claims lack clear traceability.
+5 = Categories and key claims consistently include transcript and segment anchors.
+Why CCA needs this: CCA credibility depends on showing how analytic insights were built from specific incidents.
+Necessity: Necessary because without traceability, evaluators cannot audit whether comparisons are grounded in data.
+Sufficiency contribution and non-overlap: This criterion checks location traceability. C2 checks quote-level evidence quality.
+
+C2. Quote Verification and Source Grounding
+Question: Are supporting quotes present in the source text and adequate for the category or claim they support?
+Anchors:
+1 = Quotes are missing, unverifiable, or weakly related to the claim.
+3 = Quotes are mostly present but uneven in relevance or coverage.
+5 = Quotes are verified, relevant, and strongly support the comparative claim.
+Why CCA needs this: Although CCA is not only quote extraction, evidence must substantiate category properties and contrasts.
+Necessity: Necessary because traceable segment IDs alone do not prove that the quoted evidence supports the analysis.
+Sufficiency contribution and non-overlap: This criterion overlaps with GT grounding but is retained because evidence grounding is a shared qualitative validity requirement. It is distinct from C1 because it checks the quality of evidence, not just its location.
+
+C3. Claim-to-Comparison Audit Trail
+Question: Can the final synthesis claims be traced through categories, memos, reconciled incidents, and specific comparisons?
+Anchors:
+1 = The final synthesis introduces claims that cannot be traced to prior analytic steps.
+3 = Most claims are traceable, but some links are implicit or weak.
+5 = There is a clear audit chain from final claims to categories, memos, incidents, and comparisons.
+Why CCA needs this: CCA is process-sensitive. The final explanation should be an accumulation of comparisons, not a detached summary.
+Necessity: Necessary because a synthesis may sound coherent while skipping the comparative reasoning that justifies it.
+Sufficiency contribution and non-overlap: This criterion evaluates the whole audit chain. C1 and C2 evaluate individual evidence anchors.
+
+
+D. Memoing and Analytic Development
+
+D1. Memo Use for Refinement
+Question: Do memos refine labels, categories, properties, tensions, and sampling needs rather than merely summarize outputs?
+Anchors:
+1 = Memos are absent or restate categories.
+3 = Memos include some insight but limited refinement or next-step value.
+5 = Memos actively refine categories, identify tensions, and propose sampling/comparison leads.
+Why CCA needs this: Memoing records the analytic movement from comparison to conceptual refinement.
+Necessity: Necessary because CCA's iterative logic is difficult to evaluate without memos.
+Sufficiency contribution and non-overlap: This criterion covers analytic development over time. B criteria evaluate the resulting category structure.
+
+D2. Tension and Uncertainty Preservation
+Question: Does the analysis preserve unresolved tensions, ambiguities, or competing interpretations instead of prematurely closing them?
+Anchors:
+1 = The output overstates certainty and erases ambiguity.
+3 = Some tensions are mentioned but not carried into synthesis or next steps.
+5 = Tensions and uncertainties are explicitly documented and used to guide further comparison.
+Why CCA needs this: CCA often produces provisional categories. Premature closure can make the output look cleaner but less methodologically faithful.
+Necessity: Necessary because qualitative analysis should not convert every variation into a settled conclusion.
+Sufficiency contribution and non-overlap: This criterion covers analytic humility and openness. A4 covers specific negative/boundary incidents.
+
+
+E. Synthesis Quality
+
+E1. Comparative Narrative Coherence
+Question: Does the final synthesis explain how major categories interact, contrast, reinforce, or condition one another?
+Anchors:
+1 = Synthesis is a topic list or unsupported broad summary.
+3 = Synthesis is understandable but only partially comparative.
+5 = Synthesis is concise, coherent, and organized around relationships among categories.
+Why CCA needs this: CCA synthesis should integrate comparative categories into a relational explanation.
+Necessity: Necessary because the user-facing theoretical output is usually the final synthesis.
+Sufficiency contribution and non-overlap: This criterion evaluates final narrative integration. B4 evaluates category-level relationships before final synthesis.
+
+E2. Variation-Aware Explanation
+Question: Does the synthesis account for differences in context, conditions, actors, or processes across incidents?
+Anchors:
+1 = Synthesis gives a uniform explanation with no variation.
+3 = Synthesis mentions variation but does not explain its implications.
+5 = Synthesis explains how conditions or contexts shape category relationships and outcomes.
+Why CCA needs this: CCA is especially valuable for explaining variation across cases and incidents.
+Necessity: Necessary because a CCA paper should demonstrate more than thematic summarization.
+Sufficiency contribution and non-overlap: This criterion covers explanatory variation. E1 covers overall coherence.
+
+E3. Published-Article Resonance Without Forced Replication
+Question: Does the output reasonably resonate with the published article's substantive findings while allowing CCA-specific alternative organization?
+Anchors:
+1 = Output contradicts or misses central findings without evidence-based justification.
+3 = Output partially overlaps with the article but misses or reorganizes some major findings.
+5 = Output captures core substantive concerns while offering a defensible CCA-specific comparative organization.
+Why CCA needs this: Because the same transcripts/papers are used, article comparison remains useful for external plausibility. However, CCA should not be penalized for not reproducing the exact GT/core-story structure.
+Necessity: Necessary for comparability with the prior GT evaluation and for demonstrating that the agent did not drift away from the empirical domain.
+Sufficiency contribution and non-overlap: This criterion is the only direct article-alignment criterion. It prevents overfitting the rubric to published theory and keeps the rest of the evaluation focused on CCA process.
+
+
+F. Cross-Coder and Integrated Analysis
+
+F1. Cross-Coder Convergence Handling
+Question: Does integration merge similar labels/categories across coders at an appropriate analytic level?
+Anchors:
+1 = Integration returns one pattern per label or ignores coder overlap.
+3 = Some merging occurs, but patterns remain fragmented or too numerous.
+5 = Integration produces coherent shared patterns with representative segments and comparative notes.
+Why CCA needs this: Multiple coder agents are valuable only if integration identifies shared comparative patterns.
+Necessity: Necessary because CCA outputs can otherwise inflate the number of labels and obscure convergence.
+Sufficiency contribution and non-overlap: This criterion covers agreement/convergence. F2 covers disagreement/divergence.
+
+F2. Cross-Coder Divergence Handling
+Question: Does integration preserve and explain meaningful differences between coders?
+Anchors:
+1 = Divergence is ignored or collapsed.
+3 = Divergence is mentioned but not analytically interpreted.
+5 = Divergence is used to refine category boundaries, properties, or unresolved questions.
+Why CCA needs this: Coder disagreement can be analytically productive in qualitative comparison.
+Necessity: Necessary because convergence alone can hide alternative interpretations.
+Sufficiency contribution and non-overlap: This criterion covers interpretive difference. F1 covers shared patterns.
+
+F3. Integrated Memo and Summary Coherence
+Question: Do integrated memos and summaries synthesize coder-specific insights without adding unsupported claims?
+Anchors:
+1 = Integrated output is disconnected, speculative, or unsupported.
+3 = Integrated output is coherent but misses some coder-specific tensions.
+5 = Integrated output is concise, traceable, and explicitly informed by coder convergence and divergence.
+Why CCA needs this: The integrated output is the strongest claim of a multi-agent CCA system.
+Necessity: Necessary because cross-coder integration is not complete until shared and divergent findings are synthesized.
+Sufficiency contribution and non-overlap: This criterion evaluates final cross-coder integration. F1 and F2 evaluate its two inputs: convergence and divergence.
+
+
+G. Computational Process Fidelity
+
+G1. Output Completeness and Schema Fidelity
+Question: Are all expected files and structured fields present, including incident coding, reconciliation, categories, memos, synthesis, integrated outputs, and evaluation reports?
+Anchors:
+1 = Major files or fields are missing.
+3 = Core files exist but some fields are incomplete or inconsistent.
+5 = All expected outputs are complete, structured, and machine-readable.
+Why CCA needs this: LLM-driven methods must be auditable at the artifact level, especially if the paper claims process fidelity.
+Necessity: Necessary because qualitative quality cannot be evaluated if required audit artifacts are missing.
+Sufficiency contribution and non-overlap: This criterion covers computational completeness, not analytic quality. Analytic quality is evaluated in A-F.
+
+G2. Count Accuracy and Process Transparency
+Question: Are reported counts accurate and conceptually clear, especially distinguishing segments, incident notes, incident labels, categories, memos, and summaries?
+Anchors:
+1 = Counts are missing, wrong, or conceptually misleading.
+3 = Counts are mostly correct but not clearly defined.
+5 = Counts are accurate, interpretable, and useful for auditing process fidelity.
+Why CCA needs this: CCA evaluation benefits from process-oriented metrics, but only if counts represent the correct analytic units.
+Necessity: Necessary because misleading counts can falsely imply analytic density or comparison coverage.
+Sufficiency contribution and non-overlap: This criterion covers quantitative process metadata. It does not judge whether labels or categories are good.
+
+
+Recommended Aggregation
+Report both dimensional scores and an overall score.
+Suggested weights:
+A. Incident-Level Constant Comparison: 25%
+B. Comparative Category Construction: 20%
+C. Evidence, Traceability, and Audit Trail: 20%
+D. Memoing and Analytic Development: 10%
+E. Synthesis Quality: 10%
+F. Cross-Coder and Integrated Analysis: 10% when two coders are used; otherwise redistribute to A-C.
+G. Computational Process Fidelity: 5%
+
+Why these weights differ from GT evaluation:
+GT evaluation often emphasizes open-code relevance, category alignment, and core-story/theory alignment. CCA evaluation should give greater weight to whether the system actually performs comparison across incidents and preserves variation. Article-level alignment is still useful but should be secondary.
+
+
+How to Make a CCA Paper Distinct from the GT Agent Paper
+
+1. Frame the contribution as process fidelity, not only theoretical output generation.
+The novelty is that the system operationalizes constant comparison as a sequence of inspectable computational moves: incident labeling, local comparison, retrieved prior comparison, anchor comparison, global reconciliation, comparative category building, memoing, and reflective evaluation.
+
+2. Emphasize the memory problem as a methodological contribution.
+The prior sliding-window approach raises a real CCA issue: local context can make comparisons recent-biased. The CCA paper can present hybrid memory and global reconciliation as a solution to the "constant comparison under context-window constraints" problem.
+
+3. Treat evaluation as more objective and process-based.
+Instead of only asking whether the output matches the published theory, evaluate process fidelity, comparison coverage, traceability, quote verification, category distinctiveness, and cross-coder convergence/divergence. This gives the paper a clearer methodological identity.
+
+4. Use the same transcripts as a controlled comparison.
+Because the datasets are the same as the GT paper, the paper can argue that differences in output arise from method design rather than from data differences. This supports a direct GT-vs-CCA comparison.
+
+5. Show that CCA is modular for future qualitative methods.
+The paper can position CCA as a reusable analytic layer: incident comparison, evidence tracing, memo audit, and cross-coder reconciliation can later support narrative analysis or content analysis with method-specific prompt changes.
+
+6. Avoid claiming that CCA replaces human theoretical sensitivity.
+A stronger claim is that the agent provides a transparent, auditable comparative scaffold that can support human qualitative analysis. This is more defensible and differentiates the work from automatic theory-generation claims.
+
+7. Present outputs as provisional analytic products.
+CCA categories and syntheses should be described as provisional, revisable, and sampling-oriented. This distinguishes the paper from a GT pipeline that may emphasize final core category or theory construction.
+
+Suggested paper angle:
+"This paper introduces and evaluates an LLM-driven Constant Comparative Analysis agent that addresses the challenge of maintaining full-dataset comparison under context-window constraints through hybrid incident memory, global reconciliation, and reflective process evaluation. Using the same qualitative datasets as a prior GT-agent study, we show how method-specific agent design shifts evaluation from theory replication toward comparison fidelity, traceability, and variation-aware synthesis."

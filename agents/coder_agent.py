@@ -5,9 +5,10 @@ import re
 from typing import Any, Dict, List, Optional
 
 INCIDENT_SCHEMA = "{\"incident_notes\": [{\"transcript\": str, \"segment_number\": int, \"labels\": [str], \"comparison_notes\": [{\"focus\": str, \"similarities\": str, \"differences\": str}], \"analytic_memo\": str}]}"
-CATEGORY_SCHEMA = "{\"comparative_categories\": [{\"name\": str, \"defining_properties\": [str], \"comparative_insights\": [str], \"supporting_segments\": [{\"transcript\": str, \"segment_number\": int, \"labels\": [str]}]}]}"
+CATEGORY_SCHEMA = "{\"comparative_categories\": [{\"name\": str, \"defining_properties\": [str], \"comparative_insights\": [str], \"supporting_segments\": [{\"transcript\": str, \"segment_number\": int, \"labels\": [str]}], \"boundary_or_negative_cases\": [{\"transcript\": str, \"segment_number\": int, \"case_summary\": str, \"category_implication\": str}], \"no_boundary_case_reason\": str}]}"
 MEMO_SCHEMA = "{\"comparative_memos\": [{\"focus\": str, \"comparisons_made\": [str], \"insights\": str, \"questions\": [str], \"next_steps\": [str]}]}"
 SYNTHESIS_SCHEMA = "{\"comparative_summary\": str}"
+RECONCILIATION_SCHEMA = "{\"label_clusters\": [{\"name\": str, \"member_labels\": [str], \"representative_segments\": [str], \"comparative_note\": str}], \"global_comparisons\": [{\"transcript\": str, \"segment_number\": int, \"refined_labels\": [str], \"comparison_summary\": str, \"boundary_or_negative_case\": str}], \"audit_note\": str}"
 
 
 def _mode_instruction(analysis_mode: str, phase: str) -> str:
@@ -27,12 +28,15 @@ def run_incident_coding(
     theoretical_framework: str,
     transcript_summaries: Optional[Dict[str, str]] = None,
     prior_incidents: Optional[List[Dict[str, Any]]] = None,
+    comparison_context: Optional[Dict[str, Any]] = None,
     attempts: int = 2,
     timeout_s: float = 90.0,
 ) -> List[Dict[str, Any]]:
     system = (
         "You are executing constant comparative incident coding. For each segment, identify analytic incident labels (2–6 words) and articulate how they compare with prior incidents. "
         "Explicitly discuss similarities and differences and capture an analytic memo that justifies any refinements or new distinctions. "
+        "When comparison_context is supplied, use recent_prior for continuity, retrieved_prior for full-history analogues or contrasts, and anchor_prior for early anchors or boundary cases. "
+        "Do not force a comparison where no meaningful prior case exists; state that the segment is a baseline or new distinction. "
         + _mode_instruction(analysis_mode, "incident comparison")
         + "Return ONLY JSON following the supplied schema."
     )
@@ -50,15 +54,83 @@ def run_incident_coding(
         "segments": items,
         "prior_incidents": prior_incidents or [],
         "instructions": (
-            "Produce labelled incidents, comparison notes (similarities and differences versus prior incidents), and a concise analytic memo per segment."
+            "Produce labelled incidents, comparison notes (similarities and differences versus prior incidents), and a concise analytic memo per segment. "
+            "Make visible whether the most important comparison came from recent, retrieved, or anchor prior incidents."
         ),
         "schema": INCIDENT_SCHEMA,
     }
+    if comparison_context:
+        payload["comparison_context"] = comparison_context
     if transcript_summaries:
         payload["transcript_summaries"] = transcript_summaries
     user = json.dumps(payload, ensure_ascii=False)
     data = sdk.run_json(system, user, schema_hint=INCIDENT_SCHEMA, attempts=attempts, timeout_s=timeout_s)
     return data.get("incident_notes") or []
+
+
+def _clip(text: Any, limit: int) -> str:
+    value = str(text or "").strip()
+    if len(value) <= limit:
+        return value
+    return value[:limit].rsplit(" ", 1)[0].rstrip()
+
+
+def _compact_incident_notes(incident_notes: List[Dict[str, Any]], *, memo_chars: int = 320) -> List[Dict[str, Any]]:
+    if incident_notes:
+        memo_chars = min(memo_chars, max(120, 90000 // max(1, len(incident_notes))))
+    compact: List[Dict[str, Any]] = []
+    for note in incident_notes:
+        labels = [str(lbl).strip() for lbl in (note.get("labels") or []) if str(lbl).strip()]
+        comparison_notes = note.get("comparison_notes") or []
+        compact.append(
+            {
+                "transcript": note.get("transcript"),
+                "segment_number": note.get("segment_number"),
+                "labels": labels[:8],
+                "analytic_memo": _clip(note.get("analytic_memo", ""), memo_chars),
+                "comparison_note_count": len(comparison_notes) if isinstance(comparison_notes, list) else 0,
+            }
+        )
+    return compact
+
+
+def run_incident_reconciliation(
+    *,
+    sdk,
+    incident_notes: List[Dict[str, Any]],
+    study_background: str,
+    analysis_mode: str,
+    theoretical_framework: str,
+    transcript_summaries: Optional[Dict[str, str]] = None,
+    attempts: int = 1,
+    timeout_s: float = 180.0,
+) -> Dict[str, Any]:
+    system = (
+        "You are conducting a second-pass global constant-comparative reconciliation. "
+        "Review first-pass incident notes across the whole dataset, not only recent local context. "
+        "Merge semantically similar incident labels into higher-level label clusters, identify early-late and cross-transcript comparisons, and flag boundary or negative cases. "
+        "Do not rewrite the analysis from scratch; preserve traceability to transcript and segment identifiers. "
+        + _mode_instruction(analysis_mode, "global incident reconciliation")
+        + "Return ONLY JSON following the supplied schema."
+    )
+    payload = {
+        "study_background": study_background,
+        "theoretical_framework": theoretical_framework if analysis_mode != "classic" else "",
+        "incident_notes": _compact_incident_notes(incident_notes),
+        "transcript_summaries": transcript_summaries or {},
+        "instructions": (
+            "Create label clusters and global comparisons that make full-dataset constant comparison visible. "
+            "global_comparisons should include only segments where a meaningful cross-dataset refinement, contrast, or boundary/negative case is found."
+        ),
+        "schema": RECONCILIATION_SCHEMA,
+    }
+    user = json.dumps(payload, ensure_ascii=False)
+    data = sdk.run_json(system, user, schema_hint=RECONCILIATION_SCHEMA, attempts=attempts, timeout_s=timeout_s)
+    return {
+        "label_clusters": data.get("label_clusters") or [],
+        "global_comparisons": data.get("global_comparisons") or [],
+        "audit_note": data.get("audit_note", ""),
+    }
 
 
 def run_category_comparison(
@@ -76,6 +148,7 @@ def run_category_comparison(
     system = (
         "You are advancing constant comparative analysis from incidents to provisional categories. Group incidents into analytic categories, specify defining properties, and articulate comparative insights that show how categories differ or overlap. "
         "Each category must list the supporting segments (transcript + segment number + labels) that anchor it. "
+        "Each category must also list at least one boundary_or_negative_case that complicates, limits, or differentiates the category; if no credible boundary case exists, state no_boundary_case_reason explicitly. "
         + _mode_instruction(analysis_mode, "category comparison")
         + "Return ONLY JSON following the supplied schema."
     )
@@ -92,7 +165,9 @@ def run_category_comparison(
         "max_categories": int(max_categories) if isinstance(max_categories, int) else 0,
         "instructions": (
             limit_clause
-            + " Compare incidents iteratively; name categories, define their properties, and highlight contrasts or boundary cases."
+            + " Compare incidents iteratively; name categories, define their properties, and highlight contrasts or boundary cases. "
+            + "Do not collapse distinct mechanisms into a broad bucket merely because they all affect the same high-level construct. "
+            + "For each category, include boundary_or_negative_cases with transcript and segment_number, or explain why none were found."
         ),
         "schema": CATEGORY_SCHEMA,
     }

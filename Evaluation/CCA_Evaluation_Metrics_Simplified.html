@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CCA 简化 Evaluation Metrics</title>
+  <style>
+    :root {
+      --ink: #172033;
+      --muted: #5d687c;
+      --line: #d9dee8;
+      --soft: #f6f8fb;
+      --blue: #2f66d0;
+      --gold: #b77b1d;
+      --green: #2b7a58;
+      --red: #a53e3e;
+      --white: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--soft);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.58;
+    }
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 40px 24px 56px;
+    }
+    header {
+      background: var(--white);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 28px 30px;
+      margin-bottom: 18px;
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: 30px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+    h2 {
+      margin: 0 0 14px;
+      font-size: 21px;
+      letter-spacing: 0;
+    }
+    h3 {
+      margin: 22px 0 8px;
+      font-size: 17px;
+      letter-spacing: 0;
+    }
+    p { margin: 0 0 12px; }
+    section {
+      background: var(--white);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 24px 26px;
+      margin: 16px 0;
+    }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      background: #fbfcfe;
+    }
+    .card strong {
+      display: block;
+      font-size: 15px;
+      margin-bottom: 6px;
+    }
+    .card span {
+      color: var(--muted);
+      font-size: 14px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 4px;
+      background: var(--white);
+    }
+    th, td {
+      border-top: 1px solid var(--line);
+      padding: 11px 10px;
+      vertical-align: top;
+      text-align: left;
+      font-size: 14px;
+    }
+    th {
+      color: #24304a;
+      background: #f0f3f8;
+      font-weight: 700;
+    }
+    ul, ol { margin: 8px 0 12px 22px; padding: 0; }
+    li { margin: 6px 0; }
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--white);
+      background: var(--blue);
+      white-space: nowrap;
+    }
+    .pill.machine { background: var(--blue); }
+    .pill.human { background: var(--gold); }
+    .pill.mixed { background: var(--green); }
+    .note {
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .callout {
+      border-left: 4px solid var(--blue);
+      background: #f4f7fd;
+      padding: 12px 14px;
+      margin: 12px 0;
+      border-radius: 6px;
+    }
+    .warn { border-left-color: var(--gold); background: #fff9ed; }
+    .danger { border-left-color: var(--red); background: #fff5f5; }
+    code {
+      background: #eef2f7;
+      padding: 1px 5px;
+      border-radius: 5px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.94em;
+    }
+    @media (max-width: 820px) {
+      main { padding: 24px 14px 40px; }
+      .summary { grid-template-columns: 1fr; }
+      section, header { padding: 20px; }
+      table { display: block; overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>CCA 简化 Evaluation Metrics</h1>
+    <p>这个版本把原来 20 多个细项压缩为 5 个核心维度。目标不是证明每一个 qualitative 判断都完美，而是判断 CCA 程序是否真的可用，以及它和人类文章分析相比是否足够接近、可追溯、可修正。</p>
+    <div class="summary">
+      <div class="card"><strong>核心问题 1</strong><span>程序有没有完整、稳定、可审计地跑完 CCA？</span></div>
+      <div class="card"><strong>核心问题 2</strong><span>结果是否被 transcript 和 quote 支撑，而不是看起来像主题总结？</span></div>
+      <div class="card"><strong>核心问题 3</strong><span>和人类分析相比，核心发现是否对齐，偏差在哪里？</span></div>
+    </div>
+  </header>
+
+  <section>
+    <h2>最终评分结构</h2>
+    <p>总分使用 1-5 分，也可转换为 100 分。建议阈值：<strong>4.0 以上 = 程序基本 work</strong>；3.5-3.9 = 可用于开发但需要修正；低于 3.5 = 不能说明程序稳定有效。若“证据可追溯”低于 3.0，即使总分较高，也不建议通过。</p>
+    <table>
+      <thead>
+        <tr>
+          <th>维度</th>
+          <th>权重</th>
+          <th>谁评分</th>
+          <th>回答的核心问题</th>
+          <th>对应旧 rubric</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>A. 输出完整性与运行覆盖</td>
+          <td>15%</td>
+          <td><span class="pill machine">机器</span></td>
+          <td>所有 expected files 是否产生？所有 transcripts/segments 是否被处理？count 是否可信？</td>
+          <td>G1, G2, A3 的数量部分</td>
+        </tr>
+        <tr>
+          <td>B. 证据可追溯与 quote 质量</td>
+          <td>20%</td>
+          <td><span class="pill mixed">机器 + 人类</span></td>
+          <td>category 和 final claims 是否能回到 segment/quote？quote 是否真的存在、干净、相关？</td>
+          <td>C1, C2, C3</td>
+        </tr>
+        <tr>
+          <td>C. 和人类文章分析的主题对齐</td>
+          <td>30%</td>
+          <td><span class="pill human">人类</span></td>
+          <td>人类文章中的核心 findings 是否被机器恢复？有没有重要遗漏或不支持的新增主题？</td>
+          <td>E3，加上主题 recall/precision</td>
+        </tr>
+        <tr>
+          <td>D. CCA 推理质量</td>
+          <td>20%</td>
+          <td><span class="pill mixed">机器 + 人类</span></td>
+          <td>它是否真的在比较 incidents、保留差异、用 memo 推进类别，而不只是贴标签？</td>
+          <td>A1-A4, B1-B4, D1-D2, F1-F2</td>
+        </tr>
+        <tr>
+          <td>E. 最终 synthesis 可用性</td>
+          <td>15%</td>
+          <td><span class="pill human">人类</span></td>
+          <td>最终 summary 是否清楚、不过度推断、能作为研究者下一步判断的依据？</td>
+          <td>E1, E2, F3</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>机器评估部分</h2>
+    <p>机器部分只负责可重复、可自动审计的检查。它不能替代人类 judgment，但可以减少人类评分者需要看的原始材料数量。</p>
+    <table>
+      <thead>
+        <tr>
+          <th>检查项</th>
+          <th>需要看的数据</th>
+          <th>机器要输出什么</th>
+          <th>失败信号</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>文件与 schema 完整性</td>
+          <td><code>analysis_summary.txt</code>、所有 <code>segments_*.txt</code>、incident coding、reconciliation、category、memo、synthesis、integrated files</td>
+          <td>expected files 是否齐全；每个 coder 的 segment 数、label 数、memo 数、category 数；integrated output 是否存在</td>
+          <td>缺少核心输出；segment 数明显小于原始 transcript；integrated summary/category 缺失</td>
+        </tr>
+        <tr>
+          <td>覆盖率与 count audit</td>
+          <td>原始 transcript 列表、segment files、incident coding files</td>
+          <td>transcript count、total segments、每个 segment 是否有 labels/comparison/memo；count 是否与 summary 一致</td>
+          <td>有 transcript 未进入分析；大量 segment 没有 memo 或 comparison；summary count 与实际文件不一致</td>
+        </tr>
+        <tr>
+          <td>Quote/source verification</td>
+          <td>category comparison files、source text、original PDF extracted text</td>
+          <td>quote 是否能在 source 中 exact/partial match；quote 是否太短、含 line number、含 INTERVIEWER/INTERVIEWEE 噪音</td>
+          <td>quote 找不到；quote 主要是访谈格式噪音；quote 与 claim 无关</td>
+        </tr>
+        <tr>
+          <td>人类主题 checklist 预填</td>
+          <td>人类文章 results/discussion/conclusion、integrated summary/categories/patterns</td>
+          <td>列出 expected human themes，并标记机器输出是否 strong/partial/missing</td>
+          <td>核心 human themes 大量 missing；机器新增主题没有 transcript 支撑</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>人类评分部分</h2>
+    <p>人类评分者不需要读完所有 270 个 segment。推荐使用“全量高层输出 + 抽样原始数据”的方式，重点判断机器结果是否能站得住。</p>
+    <h3>人类评分者必须阅读</h3>
+    <ol>
+      <li>人类文章的 Results、Discussion、Conclusion，以及任何 themes/table/codebook 描述。</li>
+      <li>机器输出的 <code>integrated_cca_summary.txt</code>、<code>integrated_categories.txt</code>、<code>integrated_incident_patterns.txt</code>。</li>
+      <li>两个 coder 的 <code>category_comparisons_*.txt</code>，重点看每个 category 的 supporting segments 和 quotes。</li>
+      <li>机器生成的 process/quote audit 表，如果存在，例如 <code>process_metrics.json</code>、<code>quote_verification.json</code>。</li>
+    </ol>
+    <h3>人类评分者抽样查看的原始数据</h3>
+    <ul>
+      <li><strong>所有最终 category quotes</strong>：如果超过 30 条，则每个 category 至少 3 条，总数控制在 30 条左右。</li>
+      <li><strong>20 个 transcript segments</strong>：10 个来自 final categories 的 supporting segments，5 个随机 uncited segments，5 个边界/分歧/长文本/低置信度 segments。</li>
+      <li>如果数据集少于 50 个 segments，建议全看；50-500 个 segments，抽 20-30 个；超过 500 个 segments，抽 30-40 个并按 category 分层。</li>
+    </ul>
+    <div class="callout warn">
+      <strong>建议两名人类评分者独立评分。</strong> 若任一维度分差达到 1.0 分或以上，需要讨论并记录 adjudicated score。若只有一名评分者，报告中要标记为 single-rater evaluation。
+    </div>
+  </section>
+
+  <section>
+    <h2>人类评分者要回答的问题</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>维度</th>
+          <th>评分者问题</th>
+          <th>1 分</th>
+          <th>3 分</th>
+          <th>5 分</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>A. 输出完整性与运行覆盖</td>
+          <td>文件是否齐全？transcripts 和 segments 是否基本全覆盖？counts 是否可信？</td>
+          <td>核心文件缺失或 count 不可信</td>
+          <td>核心文件存在，但部分 count/schema 不清楚</td>
+          <td>文件齐全，coverage 和 counts 清楚可复核</td>
+        </tr>
+        <tr>
+          <td>B. 证据可追溯与 quote 质量</td>
+          <td>category/claim 是否能追到原始 segment？quote 是否存在、干净、支持 claim？</td>
+          <td>quote 不可验证或 claim 无证据</td>
+          <td>大多能追溯，但 quote 噪音或相关性不稳定</td>
+          <td>quote 和 segment 清楚、干净、直接支持 claims</td>
+        </tr>
+        <tr>
+          <td>C. 和人类文章分析的主题对齐</td>
+          <td>人类文章的核心主题机器是否恢复？是否遗漏关键 finding？是否新增 unsupported theme？</td>
+          <td>核心人类 findings 大量缺失或相反</td>
+          <td>恢复部分核心主题，但有明显遗漏或组织偏差</td>
+          <td>核心主题基本恢复，允许 CCA 有不同组织方式</td>
+        </tr>
+        <tr>
+          <td>D. CCA 推理质量</td>
+          <td>输出是否显示 incident comparison、差异比较、boundary/negative case、memo refinement？</td>
+          <td>像普通 thematic summary，没有比较过程</td>
+          <td>有比较和 memo，但部分公式化或 boundary case 少</td>
+          <td>比较具体、跨数据集、能用差异 refine categories</td>
+        </tr>
+        <tr>
+          <td>E. 最终 synthesis 可用性</td>
+          <td>最终 summary 是否清楚、准确、有边界、能帮助判断程序结果？</td>
+          <td>final synthesis 不可信或无法使用</td>
+          <td>可读且大体可信，但需要明显人工修正</td>
+          <td>清楚、准确、有 caveat，可直接作为 evaluation 结论基础</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>推荐评分流程</h2>
+    <ol>
+      <li><strong>机器先跑完整性和 quote audit。</strong> 输出 file manifest、coverage counts、quote verification、quote quality flags。</li>
+      <li><strong>人类先建立 article reference checklist。</strong> 从 published article 的 Results/Discussion/Conclusion 提取 8-15 个 expected themes，不要求机器复刻文章结构，但核心 substantive findings 应该被覆盖。</li>
+      <li><strong>人类阅读机器高层输出。</strong> 看 integrated summary、integrated categories、incident patterns、category comparisons。</li>
+      <li><strong>人类做 transcript evidence sample audit。</strong> 检查所有 final quotes 或最多 30 条 quote，再检查 20-30 个 segments 的 category fit、missed theme、comparison quality。</li>
+      <li><strong>按 5 个维度评分。</strong> 每个维度给 1-5 分和一句 rationale；两个评分者取均值或 adjudicated score。</li>
+      <li><strong>形成 go/no-go 判断。</strong> 4.0+ 说明程序基本 work；3.5-3.9 说明可开发但需修正；低于 3.5 或证据维度低于 3.0 说明不能通过。</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>最小输出模板</h2>
+    <p>每次 evaluation 至少应输出以下内容，避免报告过重但保留必要可审计性。</p>
+    <table>
+      <thead>
+        <tr>
+          <th>模块</th>
+          <th>必须包含</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Verdict</td>
+          <td>程序是否 work；是否接近人类分析；是否可用于下一轮开发/evaluation</td>
+        </tr>
+        <tr>
+          <td>Score table</td>
+          <td>5 个维度的 score、weight、rationale、next fix</td>
+        </tr>
+        <tr>
+          <td>Human theme comparison</td>
+          <td>human article theme checklist：strong / partial / missing / extra unsupported</td>
+        </tr>
+        <tr>
+          <td>Evidence audit</td>
+          <td>quote verification summary、sampled segment audit summary、主要 evidence 风险</td>
+        </tr>
+        <tr>
+          <td>Fix list</td>
+          <td>最多 5 个优先修正点，直接对应程序开发</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>

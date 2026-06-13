@@ -1,7 +1,13 @@
+from __future__ import annotations
+
 import os
 
 DEFAULT_MODEL = "gpt-5-nano"
 MODEL_OPTIONS = [
+    "gpt-5.5",
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.4-nano",
     "gpt-5",
     "gpt-5-mini",
     "gpt-5-nano",
@@ -11,8 +17,8 @@ MODEL_OPTIONS = [
     "gpt-4o",
     "gpt-4o-mini",
 ]
-SEGMENT_LENGTH_OPTIONS = [500, 1000, 2000, 3000, 4000, 5000]
-SEGMENT_LENGTH_DEFAULT = 1000
+SEGMENT_LENGTH_OPTIONS = [100, 500, 1000, 2000, 3000, 4000, 5000]
+SEGMENT_LENGTH_DEFAULT = 500
 # If <= 0, treat as AUTO (no max; agent decides best number)
 MAX_CATEGORIES_DEFAULT = 0
 # Text limits to keep context concise for the agents
@@ -27,6 +33,12 @@ RQ_DEFAULT_TIMEOUT = int(os.getenv("RQ_DEFAULT_TIMEOUT", str(60 * 60 * 5)))
 OUTPUT_DIR = os.getenv("GT_OUTPUT_DIR", "generated")
 # RAG retrieval top-k for category-to-quote matching
 RAG_K_DEFAULT = 2
+
+# CCA incident-comparison memory
+CCA_RECENT_INCIDENT_CONTEXT_LIMIT = int(os.getenv("CCA_RECENT_INCIDENT_CONTEXT_LIMIT", "20"))
+CCA_RETRIEVED_INCIDENT_CONTEXT_LIMIT = int(os.getenv("CCA_RETRIEVED_INCIDENT_CONTEXT_LIMIT", "8"))
+CCA_ANCHOR_INCIDENT_CONTEXT_LIMIT = int(os.getenv("CCA_ANCHOR_INCIDENT_CONTEXT_LIMIT", "6"))
+CCA_GLOBAL_RECONCILIATION_ENABLED = os.getenv("CCA_GLOBAL_RECONCILIATION_ENABLED", "1").lower() not in {"0", "false", "no"}
 
 # Quality toggles
 # UI-based refinement happens before run; default disabled.

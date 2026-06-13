@@ -22,6 +22,7 @@ try:
     from .agents.sdk import AgentSDK
     from .agents.coder_agent import (
         run_incident_coding,
+        run_incident_reconciliation,
         run_category_comparison,
         run_comparative_memos,
         run_cca_synthesis,
@@ -35,6 +36,8 @@ try:
     )
     # from .agents.stats_agent import build_summary
     from .agents.tools import write_json_txt, build_segment_maps
+    from .agents.evidence import build_clean_quote_evidence, quote_exact_or_clean_match
+    from .agents.document_extract import extract_document_text
 except Exception:
     try:
         import config  # top-level import
@@ -44,6 +47,7 @@ except Exception:
     from agents.sdk import AgentSDK
     from agents.coder_agent import (
         run_incident_coding,
+        run_incident_reconciliation,
         run_category_comparison,
         run_comparative_memos,
         run_cca_synthesis,
@@ -57,6 +61,8 @@ except Exception:
     )
     # from agents.stats_agent import build_summary
     from agents.tools import write_json_txt, build_segment_maps
+    from agents.evidence import build_clean_quote_evidence, quote_exact_or_clean_match
+    from agents.document_extract import extract_document_text
 
 # If you reference _cfg later, create an alias now so both paths share it
 _cfg = config
@@ -182,31 +188,10 @@ def run_job(run_dir: Path) -> None:
     _log(run_dir, "Loading, chunking, and indexing transcripts...")
     vindex = VectorIndex(api_key=api_key)
     def _read_text(path: Path) -> str:
-        suf = path.suffix.lower()
-        try:
-            if suf == ".txt":
-                return path.read_text(encoding="utf-8", errors="replace")
-            if suf == ".pdf":
-                try:
-                    from pypdf import PdfReader  # type: ignore
-                    reader = PdfReader(str(path))
-                    return "\n".join(page.extract_text() or "" for page in reader.pages)
-                except Exception:
-                    return ""
-            if suf in (".docx", ".docs"):
-                try:
-                    import docx  # type: ignore
-                    doc = docx.Document(str(path))
-                    return "\n".join(p.text for p in doc.paragraphs)
-                except Exception:
-                    return ""
-            if suf == ".doc":
-                # Legacy .doc not supported without external tools
-                return ""
-            # Fallback
-            return path.read_text(encoding="utf-8", errors="replace")
-        except Exception:
-            return ""
+        info = extract_document_text(path)
+        if info.get("warnings"):
+            _log(run_dir, f"Text extraction warnings for {path.name}: {' | '.join(str(w) for w in info.get('warnings', [])[:3])}")
+        return str(info.get("text") or "")
 
     for name in uploads:
         raw_text = _read_text(transcripts_dir / name)
@@ -319,6 +304,267 @@ def run_job(run_dir: Path) -> None:
             num = 0
         return (tx, num)
 
+    _memory_token_re = re.compile(r"[A-Za-z0-9]+")
+    _memory_stopwords = {
+        "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in",
+        "into", "is", "it", "of", "on", "or", "that", "the", "to", "with",
+    }
+
+    def _clip_text(value: Any, max_chars: int = 700) -> str:
+        text = str(value or "").strip()
+        if len(text) <= max_chars:
+            return text
+        return text[:max_chars].rsplit(" ", 1)[0].rstrip()
+
+    def _memory_tokens(value: Any) -> set[str]:
+        return {
+            tok
+            for tok in _memory_token_re.findall(str(value or "").lower())
+            if tok not in _memory_stopwords and len(tok) > 2
+        }
+
+    def _incident_ref(note: Dict[str, Any]) -> str:
+        return f"{note.get('transcript')}#{note.get('segment_number')}"
+
+    def _compact_prior_incident(note: Dict[str, Any], *, include_source: bool = False) -> Dict[str, Any]:
+        out = {
+            "transcript": note.get("transcript"),
+            "segment_number": note.get("segment_number"),
+            "labels": [str(lbl).strip() for lbl in (note.get("labels") or []) if str(lbl).strip()][:8],
+            "analytic_memo": _clip_text(note.get("analytic_memo", ""), 360),
+        }
+        if include_source:
+            out["source_excerpt"] = _clip_text(note.get("source_text", ""), 420)
+        return out
+
+    def _score_prior(current_segment: Dict[str, Any], prior_note: Dict[str, Any]) -> float:
+        current_text = current_segment.get("text", "")
+        current_tokens = _memory_tokens(current_text)
+        prior_text = " ".join(
+            [
+                " ".join(str(lbl) for lbl in (prior_note.get("labels") or [])),
+                str(prior_note.get("analytic_memo", "")),
+                str(prior_note.get("source_text", "")),
+            ]
+        )
+        prior_tokens = _memory_tokens(prior_text)
+        if not current_tokens or not prior_tokens:
+            return 0.0
+        return len(current_tokens & prior_tokens) / max(1, len(current_tokens | prior_tokens))
+
+    def _select_retrieved_prior(
+        current_segment: Dict[str, Any],
+        archive: List[Dict[str, Any]],
+        recent_refs: set[str],
+        *,
+        limit: int,
+    ) -> List[Dict[str, Any]]:
+        if limit <= 0:
+            return []
+        scored: List[Tuple[float, Dict[str, Any]]] = []
+        for prior in archive:
+            if _incident_ref(prior) in recent_refs:
+                continue
+            score = _score_prior(current_segment, prior)
+            if score > 0:
+                scored.append((score, prior))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [
+            {**_compact_prior_incident(note, include_source=False), "retrieval_score": round(score, 3)}
+            for score, note in scored[:limit]
+        ]
+
+    def _select_anchor_prior(archive: List[Dict[str, Any]], *, limit: int) -> List[Dict[str, Any]]:
+        if limit <= 0 or not archive:
+            return []
+        anchors: List[Dict[str, Any]] = []
+        seen_refs: set[str] = set()
+        # Keep early cases visible, then add spaced examples so older context is not lost.
+        candidates: List[Dict[str, Any]] = archive[:2]
+        if len(archive) > 2:
+            step = max(1, len(archive) // max(1, limit - len(candidates)))
+            candidates.extend(archive[2::step])
+        for note in candidates:
+            ref = _incident_ref(note)
+            if ref in seen_refs:
+                continue
+            anchors.append(_compact_prior_incident(note, include_source=False))
+            seen_refs.add(ref)
+            if len(anchors) >= limit:
+                break
+        return anchors
+
+    def _build_comparison_context(current_segment: Dict[str, Any], archive: List[Dict[str, Any]]) -> Dict[str, Any]:
+        recent_limit = int(getattr(_cfg, "CCA_RECENT_INCIDENT_CONTEXT_LIMIT", 20))
+        retrieved_limit = int(getattr(_cfg, "CCA_RETRIEVED_INCIDENT_CONTEXT_LIMIT", 8))
+        anchor_limit = int(getattr(_cfg, "CCA_ANCHOR_INCIDENT_CONTEXT_LIMIT", 6))
+        recent_notes = archive[-recent_limit:] if recent_limit > 0 else []
+        recent_refs = {_incident_ref(note) for note in recent_notes}
+        return {
+            "recent_prior": [_compact_prior_incident(note) for note in recent_notes],
+            "retrieved_prior": _select_retrieved_prior(
+                current_segment,
+                archive,
+                recent_refs,
+                limit=retrieved_limit,
+            ),
+            "anchor_prior": _select_anchor_prior(archive, limit=anchor_limit),
+        }
+
+    def _apply_reconciliation(
+        incident_records: List[Dict[str, Any]],
+        reconciliation: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        by_key: Dict[Tuple[str, int], Dict[str, Any]] = {}
+        for row in reconciliation.get("global_comparisons") or []:
+            try:
+                key = (str(row.get("transcript")), int(row.get("segment_number") or 0))
+            except Exception:
+                continue
+            by_key[key] = row
+
+        label_clusters = reconciliation.get("label_clusters") or []
+        label_cluster_map: Dict[str, str] = {}
+        for cluster in label_clusters:
+            name = str(cluster.get("name") or "").strip()
+            if not name:
+                continue
+            for label in cluster.get("member_labels") or []:
+                key = str(label).strip().lower()
+                if key:
+                    label_cluster_map[key] = name
+
+        augmented: List[Dict[str, Any]] = []
+        for note in incident_records:
+            clone = dict(note)
+            comparison = by_key.get(_segment_key(note))
+            if comparison:
+                refined = [str(lbl).strip() for lbl in (comparison.get("refined_labels") or []) if str(lbl).strip()]
+                clone["global_comparison_summary"] = comparison.get("comparison_summary", "")
+                clone["boundary_or_negative_case"] = comparison.get("boundary_or_negative_case", "")
+                if refined:
+                    clone["refined_labels"] = refined
+            clusters = []
+            for label in clone.get("labels") or []:
+                mapped = label_cluster_map.get(str(label).strip().lower())
+                if mapped and mapped not in clusters:
+                    clusters.append(mapped)
+            if clusters:
+                clone["label_clusters"] = clusters
+            augmented.append(clone)
+        return augmented
+
+    def _category_query_text(cat: Dict[str, Any]) -> str:
+        name = str(cat.get("name", "") or "")
+        props = "\n".join(str(p) for p in (cat.get("defining_properties") or []) if str(p).strip())
+        insights = "\n".join(str(p) for p in (cat.get("comparative_insights") or []) if str(p).strip())
+        return "\n\n".join(part for part in [name, props, insights] if part.strip())
+
+    def _find_context_for_quote(quote: str, contexts: List[Dict[str, Any]]) -> Dict[str, Any] | None:
+        for context in contexts:
+            if quote_exact_or_clean_match(quote, context.get("text", "")):
+                return context
+        return None
+
+    def _fallback_quote_evidence_for_category(
+        cat: Dict[str, Any],
+        *,
+        query_text: str,
+        limit: int = 3,
+    ) -> List[Dict[str, Any]]:
+        evidence: List[Dict[str, Any]] = []
+        seen_quotes: set[str] = set()
+        for seg in cat.get("supporting_segments") or []:
+            if not isinstance(seg, dict):
+                continue
+            try:
+                key = (str(seg.get("transcript")), int(seg.get("segment_number") or 0))
+            except Exception:
+                continue
+            raw = by_key_map.get(key, {}).get("raw", "")
+            item = build_clean_quote_evidence(
+                transcript=key[0],
+                segment_number=key[1],
+                raw_text=raw,
+                query_text=query_text,
+                source="supporting_segment_fallback",
+            )
+            if item and item.get("quote") not in seen_quotes:
+                evidence.append(item)
+                seen_quotes.add(str(item.get("quote")))
+            if len(evidence) >= limit:
+                break
+        return evidence
+
+    def _normalize_boundary_cases(value: Any) -> List[Dict[str, Any]]:
+        if not isinstance(value, list):
+            return []
+        out: List[Dict[str, Any]] = []
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            summary = str(item.get("case_summary") or item.get("summary") or "").strip()
+            implication = str(item.get("category_implication") or item.get("implication") or "").strip()
+            if not (summary or implication):
+                continue
+            try:
+                seg_num = int(item.get("segment_number") or 0)
+            except Exception:
+                seg_num = 0
+            out.append(
+                {
+                    "transcript": item.get("transcript", ""),
+                    "segment_number": seg_num,
+                    "case_summary": summary,
+                    "category_implication": implication,
+                }
+            )
+        return out
+
+    def _ensure_category_boundary_cases(
+        categories: List[Dict[str, Any]],
+        incident_records: List[Dict[str, Any]],
+    ) -> None:
+        notes_by_key: Dict[Tuple[str, int], Dict[str, Any]] = {}
+        for note in incident_records:
+            notes_by_key[_segment_key(note)] = note
+        for cat in categories:
+            normalized = _normalize_boundary_cases(cat.get("boundary_or_negative_cases"))
+            if normalized:
+                cat["boundary_or_negative_cases"] = normalized[:3]
+                cat.setdefault("no_boundary_case_reason", "")
+                continue
+            candidates: List[Dict[str, Any]] = []
+            for seg in cat.get("supporting_segments") or []:
+                if not isinstance(seg, dict):
+                    continue
+                try:
+                    key = (str(seg.get("transcript")), int(seg.get("segment_number") or 0))
+                except Exception:
+                    continue
+                note = notes_by_key.get(key, {})
+                boundary_text = str(note.get("boundary_or_negative_case") or "").strip()
+                comparison_text = str(note.get("global_comparison_summary") or "").strip()
+                if boundary_text:
+                    candidates.append(
+                        {
+                            "transcript": key[0],
+                            "segment_number": key[1],
+                            "case_summary": _clip_text(boundary_text, 420),
+                            "category_implication": _clip_text(comparison_text or "This incident limits or differentiates the category boundary.", 420),
+                        }
+                    )
+                if len(candidates) >= 3:
+                    break
+            cat["boundary_or_negative_cases"] = candidates
+            if not candidates:
+                cat["no_boundary_case_reason"] = (
+                    "No explicit boundary or negative case was identified among this category's supporting segments; "
+                    "human review should verify whether this is a true absence or a pipeline omission."
+                )
+            else:
+                cat.setdefault("no_boundary_case_reason", "")
+
     # Per-coder analysis agents (constant comparative analysis pipeline)
     per_coder_incidents: List[List[Dict[str, Any]]] = []
     per_coder_categories: List[List[Dict[str, Any]]] = []
@@ -333,7 +579,7 @@ def run_job(run_dir: Path) -> None:
             # Dedicated SDK per worker to avoid cross-thread client state
             local_sdk = AgentSDK(model=model, api_key=api_key)
             local_incident_map: Dict[Tuple[str, int], Dict[str, Any]] = {}
-            local_prior: List[Dict[str, Any]] = []
+            local_archive: List[Dict[str, Any]] = []
             chunk_size = 1
             chunks_local = _iter_chunks(tx_segments, chunk_size) if tx_segments else []
             for idx_local, chunk in enumerate(chunks_local, start=1):
@@ -344,6 +590,7 @@ def run_job(run_dir: Path) -> None:
                 }
                 seg_info = chunk[0] if chunk else {}
                 notes: List[Dict[str, Any]] = []
+                comparison_context = _build_comparison_context(seg_info, local_archive) if isinstance(seg_info, dict) else {}
                 for attempt in range(2):
                     notes = run_incident_coding(
                         sdk=local_sdk,
@@ -352,7 +599,8 @@ def run_job(run_dir: Path) -> None:
                         analysis_mode=analysis_mode,
                         theoretical_framework=theoretical_framework,
                         transcript_summaries=chunk_summaries,
-                        prior_incidents=local_prior[-20:],
+                        prior_incidents=comparison_context.get("recent_prior", []),
+                        comparison_context=comparison_context,
                         attempts=2,
                         timeout_s=150.0,
                     )
@@ -377,17 +625,16 @@ def run_job(run_dir: Path) -> None:
                     key = _segment_key(note)
                     if key not in local_incident_map or not local_incident_map[key].get("labels"):
                         local_incident_map[key] = note
-                    for lbl in labels:
-                        local_prior.append(
-                            {
-                                "label": lbl,
-                                "transcript": note.get("transcript"),
-                                "segment_number": note.get("segment_number"),
-                                "analytic_memo": note.get("analytic_memo", ""),
-                            }
-                        )
-                if len(local_prior) > 60:
-                    local_prior = local_prior[-60:]
+                    archive_note = {
+                        "transcript": note.get("transcript"),
+                        "segment_number": note.get("segment_number"),
+                        "labels": labels,
+                        "analytic_memo": note.get("analytic_memo", ""),
+                        "comparison_notes": note.get("comparison_notes", []),
+                        "source_text": seg_info.get("text", "") if isinstance(seg_info, dict) else "",
+                    }
+                    if labels:
+                        local_archive.append(archive_note)
             return local_incident_map
 
         per_tx_segments: List[List[Dict[str, Any]]] = [grp for grp in all_segments_by_tx if grp]
@@ -403,7 +650,42 @@ def run_job(run_dir: Path) -> None:
 
         ordered_keys = [_segment_key(seg) for seg in flat_all_segments]
         incident_records = [incident_map[key] for key in ordered_keys if key in incident_map]
-        write_json_txt(run_dir, f"incident_coding_{coder_id}.txt", {"coder": coder_id, "incident_notes": incident_records})
+        reconciliation: Dict[str, Any] = {}
+        if getattr(_cfg, "CCA_GLOBAL_RECONCILIATION_ENABLED", True) and incident_records:
+            _log(run_dir, f"[{coder_id}] Reconciling incidents across the full dataset...")
+            try:
+                t0 = time.time()
+                reconciliation = run_incident_reconciliation(
+                    sdk=sdk,
+                    incident_notes=incident_records,
+                    study_background=study_background,
+                    analysis_mode=analysis_mode,
+                    theoretical_framework=theoretical_framework,
+                    transcript_summaries=transcript_summaries,
+                    attempts=1,
+                    timeout_s=240.0,
+                )
+                _log(
+                    run_dir,
+                    f"[{coder_id}] Reconciliation response in {time.time()-t0:.2f}s; "
+                    f"clusters={len(reconciliation.get('label_clusters') or [])}; "
+                    f"global_comparisons={len(reconciliation.get('global_comparisons') or [])}.",
+                )
+                write_json_txt(run_dir, f"incident_reconciliation_{coder_id}.txt", {"coder": coder_id, **reconciliation})
+                incident_records = _apply_reconciliation(incident_records, reconciliation)
+            except Exception as exc:
+                _log(run_dir, f"[{coder_id}] Warning: global incident reconciliation failed: {exc}")
+                reconciliation = {}
+        write_json_txt(
+            run_dir,
+            f"incident_coding_{coder_id}.txt",
+            {
+                "coder": coder_id,
+                "incident_notes": incident_records,
+                "reconciliation_enabled": bool(getattr(_cfg, "CCA_GLOBAL_RECONCILIATION_ENABLED", True)),
+                "reconciliation_file": f"incident_reconciliation_{coder_id}.txt" if reconciliation else "",
+            },
+        )
 
         _log(run_dir, f"[{coder_id}] Building comparative categories...")
         cats: List[Dict[str, Any]] = []
@@ -425,27 +707,50 @@ def run_job(run_dir: Path) -> None:
                 break
             _log(run_dir, f"[{coder_id}] Retrying category comparison (attempt {attempt + 2})...")
 
+        _ensure_category_boundary_cases(cats, incident_records)
+
         QUOTES_BATCH_SCHEMA = "{\"quotes_by_category\": [{\"index\": int, \"quotes\": [str]}]}"
         payload_items = []
+        quote_contexts_by_cat: Dict[int, List[Dict[str, Any]]] = {}
+        quote_queries_by_cat: Dict[int, str] = {}
         for idx, cat in enumerate(cats):
             name = cat.get("name", "") or ""
-            props = "\n".join(str(p) for p in (cat.get("defining_properties") or []) if str(p).strip())
-            insights = "\n".join(str(p) for p in (cat.get("comparative_insights") or []) if str(p).strip())
-            query_parts = [name, props, insights]
-            query = "\n\n".join(part for part in query_parts if part)
+            query = _category_query_text(cat)
+            quote_queries_by_cat[idx] = query
             results = vindex.query(text=query, k=getattr(_cfg, "RAG_K_DEFAULT", 2))
-            contexts = [t for (t, _meta) in results if t and t.strip()]
+            contexts = [
+                {
+                    "text": t,
+                    "transcript": _meta.get("transcript", ""),
+                    "segment_number": _meta.get("segment_number", 0),
+                }
+                for (t, _meta) in results
+                if t and t.strip()
+            ]
+            quote_contexts_by_cat[idx] = contexts
             payload_items.append(
                 {
                     "index": idx,
-                    "category": {"name": name, "definition": props, "insights": insights},
-                    "contexts": contexts,
+                    "category": {
+                        "name": name,
+                        "definition": "\n".join(str(p) for p in (cat.get("defining_properties") or []) if str(p).strip()),
+                        "insights": "\n".join(str(p) for p in (cat.get("comparative_insights") or []) if str(p).strip()),
+                    },
+                    "contexts": [
+                        {
+                            "transcript": item.get("transcript"),
+                            "segment_number": item.get("segment_number"),
+                            "text": _clip_text(item.get("text", ""), 1800),
+                        }
+                        for item in contexts
+                    ],
                 }
             )
         if payload_items:
             system = (
                 "Extract 1–3 verbatim quotes per category that best evidence the comparative insight. "
-                "Quotes must be substrings of the provided contexts, prioritise participant speech, and limit each quote to ≤ 3 sentences. JSON only."
+                "Quotes must be substrings of the provided contexts, prioritise participant speech, and limit each quote to <= 3 sentences. "
+                "Do not include speaker labels, line numbers, demographic headers, interviewer questions, or question fragments. JSON only."
             )
             user = json.dumps({"items": payload_items, "schema": QUOTES_BATCH_SCHEMA}, ensure_ascii=False)
             t0 = time.time()
@@ -457,9 +762,52 @@ def run_job(run_dir: Path) -> None:
             }
             for idx, cat in enumerate(cats):
                 qlist = (by_cat.get(idx) or [])[:3]
-                cat["supporting_quotes"] = [
-                    q for q in ([_trim_to_sentences(q, 3) for q in qlist] if qlist else []) if q and q.strip()
-                ]
+                contexts = quote_contexts_by_cat.get(idx, [])
+                query_text = quote_queries_by_cat.get(idx, _category_query_text(cat))
+                evidence_items: List[Dict[str, Any]] = []
+                seen_quotes: set[str] = set()
+                rejected_model_quotes = 0
+                for q in qlist:
+                    context = _find_context_for_quote(q, contexts)
+                    if not context:
+                        rejected_model_quotes += 1
+                        continue
+                    item = build_clean_quote_evidence(
+                        transcript=context.get("transcript"),
+                        segment_number=context.get("segment_number"),
+                        raw_text=context.get("text", ""),
+                        query_text=query_text,
+                        provided_quote=q,
+                        source="retrieved_context",
+                    )
+                    if item and item.get("quote") not in seen_quotes:
+                        evidence_items.append(item)
+                        seen_quotes.add(str(item.get("quote")))
+                    else:
+                        rejected_model_quotes += 1
+                retrieved_verification_count = len(evidence_items)
+                fallback_used = False
+                if len(evidence_items) < 1:
+                    fallback_used = True
+                    evidence_items = _fallback_quote_evidence_for_category(cat, query_text=query_text, limit=3)
+                elif len(evidence_items) < 3:
+                    for item in _fallback_quote_evidence_for_category(cat, query_text=query_text, limit=3):
+                        if item.get("quote") not in seen_quotes:
+                            evidence_items.append(item)
+                            seen_quotes.add(str(item.get("quote")))
+                        if len(evidence_items) >= 3:
+                            break
+                evidence_items = evidence_items[:3]
+                cat["supporting_quote_evidence"] = evidence_items
+                cat["supporting_quotes"] = [str(item.get("quote", "")).strip() for item in evidence_items if str(item.get("quote", "")).strip()]
+                cat["quote_audit"] = {
+                    "verified_against_retrieved_context": retrieved_verification_count,
+                    "retrieved_contexts": len(contexts),
+                    "fallback_used": fallback_used,
+                    "rejected_model_quotes": rejected_model_quotes,
+                    "quote_evidence_count": len(evidence_items),
+                    "cleanup_flags": sorted({flag for item in evidence_items for flag in (item.get("cleanup_flags") or [])}),
+                }
         write_json_txt(run_dir, f"category_comparisons_{coder_id}.txt", {"coder": coder_id, "comparative_categories": cats})
 
         _log(run_dir, f"[{coder_id}] Writing comparative memos...")
@@ -523,6 +871,8 @@ def run_job(run_dir: Path) -> None:
             write_json_txt(run_dir, "integrated_incident_patterns.txt", incident_patterns)
 
             _log(run_dir, "Integrating comparative categories...")
+            input_category_count = sum(len(clist or []) for clist in per_coder_categories)
+            target_integrated_min = min(5, input_category_count) if input_category_count >= 5 else 0
             for attempt in range(2):
                 merged_categories = synthesize_category_matrix(
                     sdk=sdk,
@@ -532,9 +882,16 @@ def run_job(run_dir: Path) -> None:
                     attempts=1,
                     timeout_s=150.0,
                 )
-                if merged_categories.get("categories"):
+                merged_count = len(merged_categories.get("categories") or [])
+                if merged_count and (not target_integrated_min or merged_count >= target_integrated_min or attempt == 1):
                     break
-                _log(run_dir, f"Retry category integration (attempt {attempt + 2})...")
+                if merged_count and target_integrated_min and merged_count < target_integrated_min:
+                    _log(
+                        run_dir,
+                        f"Integrated category count {merged_count} is below target {target_integrated_min}; retrying to reduce over-merge (attempt {attempt + 2})...",
+                    )
+                else:
+                    _log(run_dir, f"Retry category integration (attempt {attempt + 2})...")
             write_json_txt(run_dir, "integrated_categories.txt", merged_categories)
 
             _log(run_dir, "Integrating comparative memos...")
@@ -554,6 +911,8 @@ def run_job(run_dir: Path) -> None:
                 per_coder_syntheses=per_coder_syntheses,
                 analysis_mode=analysis_mode,
                 theoretical_framework=theoretical_framework,
+                incident_patterns=incident_patterns,
+                integrated_categories=merged_categories,
                 attempts=1,
                 timeout_s=150.0,
             )
@@ -571,10 +930,10 @@ def run_job(run_dir: Path) -> None:
             zip(per_coder_incidents, per_coder_categories, per_coder_memos, per_coder_syntheses), start=1
         ):
             label_total = sum(len(note.get("labels") or []) for note in inc)
-            if not label_total:
-                label_total = len(inc)
             per_coder_counts[f"coder{i}"] = {
-                "incidents": label_total,
+                "segments_coded": len(inc),
+                "incident_notes": len(inc),
+                "incident_labels": label_total,
                 "categories": len(cats),
                 "memos": len(memos),
                 "summary": 1 if (synth.get("comparative_summary") or "").strip() else 0,
@@ -582,25 +941,30 @@ def run_job(run_dir: Path) -> None:
 
         mode_val = analysis_mode
         cac_val = str(bool(cac_enabled)).lower()
+        recent_limit = getattr(_cfg, "CCA_RECENT_INCIDENT_CONTEXT_LIMIT", 20)
+        retrieved_limit = getattr(_cfg, "CCA_RETRIEVED_INCIDENT_CONTEXT_LIMIT", 8)
+        anchor_limit = getattr(_cfg, "CCA_ANCHOR_INCIDENT_CONTEXT_LIMIT", 6)
         settings = (
             f"Analysis settings: {coders} coders; analysis_mode = \"{mode_val}\"; "
             f"cac_enabled = {cac_val}; max_categories = {max_categories}; "
-            f"segment_length = {segment_len}; model = \"{model}\"; method = CCA."
+            f"segment_length = {segment_len}; model = \"{model}\"; method = CCA; "
+            f"incident_memory = recent:{recent_limit}, retrieved:{retrieved_limit}, anchors:{anchor_limit}; "
+            f"global_reconciliation = {str(bool(getattr(_cfg, 'CCA_GLOBAL_RECONCILIATION_ENABLED', True))).lower()}."
         )
 
         if coders == 2:
-            c1 = per_coder_counts.get("coder1", {"incidents": 0, "categories": 0, "memos": 0, "summary": 0})
-            c2 = per_coder_counts.get("coder2", {"incidents": 0, "categories": 0, "memos": 0, "summary": 0})
+            c1 = per_coder_counts.get("coder1", {"segments_coded": 0, "incident_notes": 0, "incident_labels": 0, "categories": 0, "memos": 0, "summary": 0})
+            c2 = per_coder_counts.get("coder2", {"segments_coded": 0, "incident_notes": 0, "incident_labels": 0, "categories": 0, "memos": 0, "summary": 0})
             per_coder_line = (
                 "Per-coder counts: "
-                f"coder1(incidents={c1['incidents']}, categories={c1['categories']}, memos={c1['memos']}, summary={c1['summary']}); "
-                f"coder2(incidents={c2['incidents']}, categories={c2['categories']}, memos={c2['memos']}, summary={c2['summary']})."
+                f"coder1(segments_coded={c1['segments_coded']}, incident_notes={c1['incident_notes']}, incident_labels={c1['incident_labels']}, categories={c1['categories']}, memos={c1['memos']}, summary={c1['summary']}); "
+                f"coder2(segments_coded={c2['segments_coded']}, incident_notes={c2['incident_notes']}, incident_labels={c2['incident_labels']}, categories={c2['categories']}, memos={c2['memos']}, summary={c2['summary']})."
             )
         else:
-            pc = per_coder_counts.get("coder1", {"incidents": 0, "categories": 0, "memos": 0, "summary": 0})
+            pc = per_coder_counts.get("coder1", {"segments_coded": 0, "incident_notes": 0, "incident_labels": 0, "categories": 0, "memos": 0, "summary": 0})
             per_coder_line = (
                 "Per-coder counts: "
-                f"coder1(incidents={pc['incidents']}, categories={pc['categories']}, memos={pc['memos']}, summary={pc['summary']})."
+                f"coder1(segments_coded={pc['segments_coded']}, incident_notes={pc['incident_notes']}, incident_labels={pc['incident_labels']}, categories={pc['categories']}, memos={pc['memos']}, summary={pc['summary']})."
             )
 
         summary_parts = [settings, per_coder_line]

@@ -1,0 +1,861 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CCA Agent Methodology Visualization</title>
+    <style>
+      :root {
+        --bg: #f7f8fb;
+        --ink: #172033;
+        --muted: #5e6a7d;
+        --line: #c9d1dc;
+        --panel: #ffffff;
+        --blue: #2563eb;
+        --teal: #0f766e;
+        --green: #2f7d32;
+        --amber: #b7791f;
+        --rose: #be4b49;
+        --slate: #475569;
+        --shadow: 0 10px 30px rgba(23, 32, 51, 0.08);
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Arial, "Noto Sans SC", "Microsoft YaHei", sans-serif;
+        color: var(--ink);
+        background: var(--bg);
+        line-height: 1.45;
+      }
+
+      main {
+        width: min(1280px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 28px 0 48px;
+      }
+
+      header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 20px;
+        align-items: end;
+        padding: 18px 0 22px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: clamp(28px, 4vw, 44px);
+        line-height: 1.08;
+        letter-spacing: 0;
+      }
+
+      .subtitle {
+        max-width: 860px;
+        margin: 0;
+        color: var(--muted);
+        font-size: 16px;
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        min-height: 32px;
+        padding: 5px 10px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #fff;
+        color: var(--slate);
+        font-size: 13px;
+        white-space: nowrap;
+      }
+
+      section {
+        margin-top: 22px;
+      }
+
+      .section-title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 0 12px;
+        font-size: 18px;
+      }
+
+      .section-title::before {
+        content: "";
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        background: var(--blue);
+      }
+
+      .workflow {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(140px, 1fr));
+        gap: 12px;
+      }
+
+      .step {
+        position: relative;
+        min-height: 178px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-top: 5px solid var(--blue);
+        border-radius: 8px;
+        padding: 14px 14px 16px;
+        box-shadow: var(--shadow);
+      }
+
+      .step::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        right: -12px;
+        width: 12px;
+        height: 1px;
+        background: var(--line);
+      }
+
+      .step:nth-child(6)::after,
+      .step:nth-child(12)::after {
+        display: none;
+      }
+
+      .step.memory { border-top-color: var(--teal); }
+      .step.reconcile { border-top-color: var(--amber); }
+      .step.evidence { border-top-color: var(--green); }
+      .step.evaluate { border-top-color: var(--rose); }
+      .step.integrate { border-top-color: var(--slate); }
+
+      .num {
+        display: inline-grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+        background: #edf2ff;
+        color: var(--blue);
+        font-weight: 700;
+        font-size: 13px;
+        margin-bottom: 10px;
+      }
+
+      .memory .num { background: #e6fffb; color: var(--teal); }
+      .reconcile .num { background: #fff7e6; color: var(--amber); }
+      .evidence .num { background: #edf7ed; color: var(--green); }
+      .evaluate .num { background: #fff0f0; color: var(--rose); }
+      .integrate .num { background: #eef2f7; color: var(--slate); }
+
+      .step h3 {
+        margin: 0 0 8px;
+        font-size: 15px;
+        line-height: 1.25;
+      }
+
+      .step p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .lanes {
+        display: grid;
+        grid-template-columns: 1fr 1.1fr 1fr;
+        gap: 14px;
+      }
+
+      .lane {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+        padding: 16px;
+      }
+
+      .lane h3 {
+        margin: 0 0 10px;
+        font-size: 16px;
+      }
+
+      .lane ul {
+        margin: 0;
+        padding-left: 18px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .lane li + li { margin-top: 8px; }
+
+      .matrix {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+
+      .matrix-card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+        padding: 16px;
+      }
+
+      .matrix-card h3 {
+        margin: 0 0 10px;
+        font-size: 16px;
+      }
+
+      .metric-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(120px, 1fr));
+        gap: 10px;
+      }
+
+      .metric {
+        min-height: 98px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px;
+        background: #fbfcfe;
+      }
+
+      .metric strong {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 13px;
+      }
+
+      .metric span {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .outputs {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(120px, 1fr));
+        gap: 10px;
+      }
+
+      .file {
+        min-height: 72px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 5px;
+        border: 1px solid var(--line);
+        border-left: 5px solid var(--blue);
+        border-radius: 8px;
+        background: #fff;
+        padding: 10px 12px;
+        box-shadow: var(--shadow);
+        font-size: 13px;
+        word-break: break-word;
+      }
+
+      .file small {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .note {
+        border-left: 5px solid var(--amber);
+        background: #fffaf0;
+        border-radius: 8px;
+        padding: 14px 16px;
+        color: #5f4a1f;
+        font-size: 14px;
+      }
+
+      .comparison {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+
+      .comparison h3 {
+        margin-top: 0;
+      }
+
+      .pill-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      .pill {
+        padding: 5px 9px;
+        border-radius: 6px;
+        border: 1px solid var(--line);
+        background: #fff;
+        color: var(--slate);
+        font-size: 12px;
+      }
+
+      .glossary {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(220px, 1fr));
+        gap: 12px;
+      }
+
+      .term {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+        padding: 14px;
+      }
+
+      .term strong {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 14px;
+      }
+
+      .term span {
+        display: block;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .protocol {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(220px, 1fr));
+        gap: 14px;
+      }
+
+      .protocol-card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+        padding: 16px;
+      }
+
+      .protocol-card h3 {
+        margin: 0 0 8px;
+        font-size: 16px;
+      }
+
+      .protocol-card p {
+        margin: 0 0 10px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .protocol-card ol,
+      .protocol-card ul {
+        margin: 0;
+        padding-left: 18px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .protocol-card li + li { margin-top: 7px; }
+
+      .table-wrap {
+        overflow-x: auto;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        box-shadow: var(--shadow);
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 920px;
+      }
+
+      th,
+      td {
+        padding: 11px 12px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+        font-size: 13px;
+      }
+
+      th {
+        background: #eef2f7;
+        color: var(--ink);
+        font-weight: 700;
+      }
+
+      tr:last-child td { border-bottom: 0; }
+
+      td:nth-child(3),
+      td:nth-child(4) {
+        color: var(--muted);
+      }
+
+      @media (max-width: 1080px) {
+        .workflow { grid-template-columns: repeat(3, minmax(180px, 1fr)); }
+        .step:nth-child(3)::after,
+        .step:nth-child(6)::after,
+        .step:nth-child(9)::after,
+        .step:nth-child(12)::after {
+          display: none;
+        }
+        .lanes,
+        .matrix,
+        .comparison {
+          grid-template-columns: 1fr;
+        }
+        .glossary,
+        .protocol {
+          grid-template-columns: repeat(2, minmax(180px, 1fr));
+        }
+        .metric-grid,
+        .outputs {
+          grid-template-columns: repeat(2, minmax(140px, 1fr));
+        }
+      }
+
+      @media (max-width: 640px) {
+        main { width: min(100% - 20px, 1280px); padding-top: 14px; }
+        header { grid-template-columns: 1fr; align-items: start; }
+        .workflow,
+        .glossary,
+        .protocol,
+        .metric-grid,
+        .outputs {
+          grid-template-columns: 1fr;
+        }
+        .step::after { display: none; }
+        .tag { width: fit-content; white-space: normal; }
+      }
+
+      @media print {
+        body { background: #fff; }
+        main { width: 100%; padding: 0; }
+        .step,
+        .lane,
+        .matrix-card,
+        .file {
+          box-shadow: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>CCA Agent 方法学流程图</h1>
+          <p class="subtitle">
+            当前 pipeline 的核心新意是把 Constant Comparative Analysis（CCA，持续比较分析）拆成可审计的计算步骤：从 transcript segment 中识别 incident，给出 incident label，比较相似与差异，再通过全数据记忆、全局 reconciliation、证据校验和反思性评估形成可追溯的 comparative synthesis。
+          </p>
+        </div>
+        <span class="tag">方法 = CCA | 基本单位 = Incident | 目标 = 可追溯的比较性解释</span>
+      </header>
+
+      <section>
+        <h2 class="section-title">Key Concepts / 关键术语解释</h2>
+        <div class="glossary">
+          <article class="term">
+            <strong>Transcript Segment / 文本片段</strong>
+            <span>系统把访谈 transcript 切成较小片段。每个片段是后续 coding 和 comparison 的输入单位，不等同于完整访谈。</span>
+          </article>
+          <article class="term">
+            <strong>Incident / 事件性分析单位</strong>
+            <span>CCA 不是先找大主题，而是先识别片段里发生了什么、表达了什么行动、经验、条件、判断或过程。这个可被比较的分析单位就是 incident。</span>
+          </article>
+          <article class="term">
+            <strong>Incident Label / 事件标签</strong>
+            <span>对 incident 的 2-6 个词概括，例如 “child safety customization”。它不是关键词摘录，而是分析性短标签，用来支持后续相似/差异比较。</span>
+          </article>
+          <article class="term">
+            <strong>Comparison Notes / 比较笔记</strong>
+            <span>记录当前 incident 与先前 incidents 的 similarities 和 differences。CCA 的核心不只是编码，而是持续比较。</span>
+          </article>
+          <article class="term">
+            <strong>Analytic Memo / 分析备忘录</strong>
+            <span>记录为什么需要新增、合并或细化 label/category，以及还存在什么 tension、疑问或 sampling lead。</span>
+          </article>
+          <article class="term">
+            <strong>Comparative Category / 比较性类别</strong>
+            <span>由多个 incidents 通过比较聚合而来。好的 category 要有 defining properties、内部 variation、与其他 category 的边界和关系。</span>
+          </article>
+          <article class="term">
+            <strong>Boundary / Negative Case</strong>
+            <span>Boundary case 是模糊边界案例；negative case 是挑战现有解释的反例。CCA 需要它们来避免过早形成单一结论。</span>
+          </article>
+          <article class="term">
+            <strong>Reconciliation / 全局再协调</strong>
+            <span>第一轮 incident coding 后，系统再看全数据，合并近义 labels，找跨 transcript 和早晚片段之间的比较，补足局部窗口遗漏。</span>
+          </article>
+          <article class="term">
+            <strong>Traceability / 可追溯性</strong>
+            <span>最终 claim 必须能追溯回 category、memo、incident、segment 和 quote。它是机器辅助 qualitative analysis 最重要的可信度基础之一。</span>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="section-title">End-to-End Workflow</h2>
+        <div class="workflow" aria-label="CCA methodology workflow">
+          <article class="step">
+            <span class="num">01</span>
+            <h3>Run Setup</h3>
+            <p>读取参数、API key、analysis mode、segment length、coder 数和 CCA memory/evaluation 设置。这一步决定模型能力、片段大小、是否开启 CAC、是否启用全局 reconciliation 和 reflective evaluation。</p>
+          </article>
+          <article class="step">
+            <span class="num">02</span>
+            <h3>Transcript Ingestion</h3>
+            <p>读取 txt/pdf/docx，切分 transcript segment，并建立 Chroma vector index。这里的 vector index 之后用于检索相关片段和证据 quote。</p>
+          </article>
+          <article class="step">
+            <span class="num">03</span>
+            <h3>Transcript Summaries</h3>
+            <p>为每份 transcript 生成 summary，作为后续 category/memo/synthesis 的背景上下文。summary 不替代原文，只帮助模型保持访谈整体语境。</p>
+          </article>
+          <article class="step memory">
+            <span class="num">04</span>
+            <h3>Hybrid Incident Memory</h3>
+            <p>每个 segment 看到 recent prior、retrieved prior、anchor prior。这样既保留局部连续性，也把早期、远处、边界案例带回来，减少 sliding-window 只看近期片段的问题。</p>
+          </article>
+          <article class="step memory">
+            <span class="num">05</span>
+            <h3>Incident Coding</h3>
+            <p>为每个 segment 生成 2-6 word incident labels，并写出 similarities/differences 和 analytic memo。这里评估重点是 label 是否贴合 segment，以及比较是否具体。</p>
+          </article>
+          <article class="step reconcile">
+            <span class="num">06</span>
+            <h3>Global Reconciliation</h3>
+            <p>第二轮全数据比较：合并近义 labels，标记 early-late、cross-transcript、boundary/negative cases。这是对 collaborator 担心的 sliding-window 局限的直接回应。</p>
+          </article>
+          <article class="step">
+            <span class="num">07</span>
+            <h3>Category Comparison</h3>
+            <p>从 reconciled incidents 建立 comparative categories、defining properties、category contrasts。这里不是传统 axial coding，而是从 incident 比较推进到 category 比较。</p>
+          </article>
+          <article class="step evidence">
+            <span class="num">08</span>
+            <h3>Quote Retrieval & Verification</h3>
+            <p>用 vector index 检索证据 quote；quote 必须能在 retrieved context 中校验，否则回退到 supporting segment。这一步把 category claim 和原始 transcript 连接起来。</p>
+          </article>
+          <article class="step">
+            <span class="num">09</span>
+            <h3>Comparative Memoing</h3>
+            <p>生成 3-6 个 memos，记录 tensions、unanswered questions、sampling leads。memo 用来展示分析如何被比较推进，而不是只给最终答案。</p>
+          </article>
+          <article class="step">
+            <span class="num">10</span>
+            <h3>CCA Synthesis</h3>
+            <p>整合 incidents、categories、memos，输出单段 comparative narrative。好的 synthesis 应解释 category 之间如何互相强化、冲突、限定或转化。</p>
+          </article>
+          <article class="step integrate">
+            <span class="num">11</span>
+            <h3>Cross-Coder Integration</h3>
+            <p>两位 coder 时整合 incident patterns、category matrix、memo digest、unified summary。重点是区分 convergence 和 divergence，而不是简单平均。</p>
+          </article>
+          <article class="step evaluate">
+            <span class="num">12</span>
+            <h3>Reflective Evaluation</h3>
+            <p>独立 audit agent 评分 process fidelity、traceability、comparison coverage、coherence。它不改写结果，只做质量审计。</p>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="section-title">Hybrid Memory Design</h2>
+        <div class="lanes">
+          <article class="lane">
+            <h3>Recent Prior</h3>
+            <ul>
+              <li>默认最近 20 个 incidents。</li>
+              <li>保留 sequential analytic continuity。</li>
+              <li>适合捕捉同一 transcript 内逐步细化的比较。</li>
+            </ul>
+          </article>
+          <article class="lane">
+            <h3>Retrieved Prior</h3>
+            <ul>
+              <li>从历史 archive 中按 token overlap 检索相关 incident。</li>
+              <li>让新片段能和更早的相似/相反案例比较。</li>
+              <li>解决单纯 sliding window 遗忘早期 context 的问题。</li>
+            </ul>
+          </article>
+          <article class="lane">
+            <h3>Anchor Prior</h3>
+            <ul>
+              <li>保留早期和分布式 anchor cases。</li>
+              <li>帮助模型维持 category 的历史边界。</li>
+              <li>为 boundary/negative case comparison 提供稳定参照。</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="section-title">CCA vs Original GT Agent</h2>
+        <div class="comparison">
+          <article class="matrix-card">
+            <h3>GT Pipeline Emphasis</h3>
+            <div class="pill-row">
+              <span class="pill">Open coding</span>
+              <span class="pill">Axial coding</span>
+              <span class="pill">Selective/core story</span>
+              <span class="pill">Article-level theory alignment</span>
+              <span class="pill">Core category utilization</span>
+            </div>
+          </article>
+          <article class="matrix-card">
+            <h3>CCA Pipeline Emphasis</h3>
+            <div class="pill-row">
+              <span class="pill">Incident comparison</span>
+              <span class="pill">Similarities/differences</span>
+              <span class="pill">Global reconciliation</span>
+              <span class="pill">Boundary/negative cases</span>
+              <span class="pill">Process fidelity evaluation</span>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="section-title">Evaluation Matrix</h2>
+        <div class="matrix">
+          <article class="matrix-card">
+            <h3>CCA-Specific Quality Dimensions</h3>
+            <div class="metric-grid">
+              <div class="metric">
+                <strong>Comparison Fidelity</strong>
+                <span>是否真正比较 incidents，而不是只生成 labels。</span>
+              </div>
+              <div class="metric">
+                <strong>Coverage</strong>
+                <span>是否覆盖 early/late、cross-transcript、anchor 和 retrieved cases。</span>
+              </div>
+              <div class="metric">
+                <strong>Variation Handling</strong>
+                <span>是否处理 boundary cases、negative cases 和条件差异。</span>
+              </div>
+              <div class="metric">
+                <strong>Auditability</strong>
+                <span>claim 是否可追溯到 segment、quote、memo 和 comparison。</span>
+              </div>
+            </div>
+          </article>
+          <article class="matrix-card">
+            <h3>Retained Qualitative Standards</h3>
+            <div class="metric-grid">
+              <div class="metric">
+                <strong>Grounding</strong>
+                <span>categories 和 synthesis 是否有原文证据支持。</span>
+              </div>
+              <div class="metric">
+                <strong>Coherence</strong>
+                <span>最终 narrative 是否连贯并解释 category 关系。</span>
+              </div>
+              <div class="metric">
+                <strong>Non-Redundancy</strong>
+                <span>categories 是否边界清楚、避免重复。</span>
+              </div>
+              <div class="metric">
+                <strong>Article Resonance</strong>
+                <span>与原文章 findings 有合理呼应，但不强制复制 GT theory。</span>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="section-title">Concrete Evaluation Protocol / 具体怎么评估</h2>
+        <div class="protocol">
+          <article class="protocol-card">
+            <h3>你需要准备什么</h3>
+            <p>因为你有原文 paper 和原始 transcript，可以做比单纯机器评估更可信的 hybrid evaluation。</p>
+            <ol>
+              <li>原始 transcripts：用于判断 incident labels、comparison notes、quotes 是否贴合数据。</li>
+              <li>Published papers：抽取 published themes、findings、theoretical relationships，用于外部 plausibility 对照。</li>
+              <li>Agent outputs：incident coding、reconciliation、categories、memos、synthesis、evaluation files。</li>
+              <li>人工评分表：按 rubric 逐条打 1-5 分，并写一句理由。</li>
+            </ol>
+          </article>
+          <article class="protocol-card">
+            <h3>机器先做什么</h3>
+            <p>机器适合做可程序化、可审计、低解释负担的检查。</p>
+            <ul>
+              <li>检查输出文件是否存在、JSON 字段是否完整。</li>
+              <li>统计 segments、incident notes、labels、categories、memos。</li>
+              <li>检查每个 incident 是否有 labels、comparison notes、analytic memo。</li>
+              <li>检查 quote 是否真实出现在 retrieved context 或 source segment。</li>
+              <li>检查 synthesis claim 是否能追溯到 categories 和 supporting segments。</li>
+            </ul>
+          </article>
+          <article class="protocol-card">
+            <h3>人需要判断什么</h3>
+            <p>人主要判断 substantive validity 和 interpretive adequacy，避免“机器评估机器”的循环问题。</p>
+            <ul>
+              <li>抽样读 transcript segment，看 incident label 是否真的抓住意义。</li>
+              <li>判断 similarities/differences 是否是实质比较，而不是模板话。</li>
+              <li>判断 category 是否有解释力，是否不是普通主题列表。</li>
+              <li>对照 paper findings，看 agent 是否覆盖主要发现，是否有合理的新组织方式。</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="section-title">Rubric Items: Who Evaluates What?</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Rubric 项目</th>
+                <th>具体要做什么</th>
+                <th>主要材料</th>
+                <th>建议评估者</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>A1 Incident Label Fit</td>
+                <td>随机抽每篇 paper 的 20-30 个 transcript segments，对照 agent incident labels，判断 label 是否具体、贴合、不是泛泛主题。</td>
+                <td>Transcript + incident_coding</td>
+                <td>人评为主；机器只能检查 label 是否存在和长度。</td>
+              </tr>
+              <tr>
+                <td>A2 Similarity/Difference Comparison</td>
+                <td>检查 comparison_notes 是否明确写出 similarities 和 differences，并判断它们是否真的基于 prior incidents。</td>
+                <td>incident_coding + transcript sample</td>
+                <td>人机结合；机器查字段，人判断质量。</td>
+              </tr>
+              <tr>
+                <td>A3 Full-Dataset Coverage</td>
+                <td>看 comparison 是否覆盖 early/late、cross-transcript、retrieved prior、anchor prior，而不是只看相邻片段。</td>
+                <td>incident_coding + incident_reconciliation + logs/counts</td>
+                <td>机器可先统计；人抽查充分性。</td>
+              </tr>
+              <tr>
+                <td>A4 Boundary/Negative Case Handling</td>
+                <td>找输出中标记的 boundary_or_negative_case，回读原 segment，判断它是否真的挑战或限定了 category。</td>
+                <td>incident_reconciliation + transcript</td>
+                <td>人评为主。</td>
+              </tr>
+              <tr>
+                <td>B1 Category Emergence</td>
+                <td>从 category supporting_segments 回看 incident labels 和 memos，判断 category 是否由 incidents 比较形成。</td>
+                <td>category_comparisons + incident_coding + memos</td>
+                <td>人机结合。</td>
+              </tr>
+              <tr>
+                <td>B2 Category Boundary Clarity</td>
+                <td>比较 categories 之间是否重复，是否有清楚 defining properties 和 contrasts。</td>
+                <td>category_comparisons</td>
+                <td>人评为主；机器可辅助找相似 category names。</td>
+              </tr>
+              <tr>
+                <td>B3 Properties and Dimensions</td>
+                <td>检查每个 category 是否包含 properties/dimensions，并能解释内部 variation。</td>
+                <td>category_comparisons + memos</td>
+                <td>人评为主。</td>
+              </tr>
+              <tr>
+                <td>B4 Category-Level Comparative Insight</td>
+                <td>判断 category 描述是否解释 overlap、contrast、condition、relationship，而不是只列主题。</td>
+                <td>category_comparisons</td>
+                <td>人评为主。</td>
+              </tr>
+              <tr>
+                <td>C1 Segment Traceability</td>
+                <td>检查每个 category 和主要 claim 是否有 transcript + segment number 支撑。</td>
+                <td>category_comparisons + synthesis</td>
+                <td>机器为主；人抽查。</td>
+              </tr>
+              <tr>
+                <td>C2 Quote Verification</td>
+                <td>确认 supporting_quotes 是原文子串，并判断 quote 是否支持对应 category claim。</td>
+                <td>Transcript + quote_audit + category_comparisons</td>
+                <td>机器验证原文存在；人判断支持力度。</td>
+              </tr>
+              <tr>
+                <td>C3 Claim-to-Comparison Audit Trail</td>
+                <td>从 final synthesis 的每个 major claim 往回追到 category、memo、incident、segment。</td>
+                <td>synthesis + categories + memos + incidents</td>
+                <td>人机结合；最终人评。</td>
+              </tr>
+              <tr>
+                <td>D1 Memo Use for Refinement</td>
+                <td>判断 memo 是否真正记录 refinement、tensions、sampling leads，而不是重复 category。</td>
+                <td>cca_memos</td>
+                <td>人评为主。</td>
+              </tr>
+              <tr>
+                <td>D2 Tension Preservation</td>
+                <td>看 unresolved tensions 是否被保留并进入 synthesis 或 next steps，而不是被强行消解。</td>
+                <td>memos + synthesis</td>
+                <td>人评为主。</td>
+              </tr>
+              <tr>
+                <td>E1 Comparative Narrative Coherence</td>
+                <td>读最终单段 synthesis，判断它是否解释 category 关系，而不是罗列主题。</td>
+                <td>cca_synthesis / integrated_cca_summary</td>
+                <td>人评为主。</td>
+              </tr>
+              <tr>
+                <td>E2 Variation-Aware Explanation</td>
+                <td>看 synthesis 是否说明不同 contexts、conditions、actors 或 processes 如何改变 category 关系。</td>
+                <td>synthesis + categories + transcript sample</td>
+                <td>人评为主。</td>
+              </tr>
+              <tr>
+                <td>E3 Published-Article Resonance</td>
+                <td>从原 paper 抽取 major findings/themes/relationships，比较 agent 是否覆盖核心发现，同时允许 CCA 有不同组织方式。</td>
+                <td>Published paper + agent synthesis/categories</td>
+                <td>人评为主；不要用 paper incident label 对答案。</td>
+              </tr>
+              <tr>
+                <td>F1 Cross-Coder Convergence</td>
+                <td>检查 integrated_incident_patterns 和 integrated_categories 是否合并相近 coder outputs，而不是一 label 一个 pattern。</td>
+                <td>integrated outputs + per-coder outputs</td>
+                <td>机器可统计数量；人判断合并质量。</td>
+              </tr>
+              <tr>
+                <td>F2 Cross-Coder Divergence</td>
+                <td>判断系统是否保留 coder 差异，并把差异用于 refining category boundaries 或 tensions。</td>
+                <td>integrated_memo_digest + integrated_categories</td>
+                <td>人评为主。</td>
+              </tr>
+              <tr>
+                <td>G1/G2 Process Fidelity</td>
+                <td>检查文件完整性、schema 完整性、count accuracy，特别区分 segments、incident notes、incident labels。</td>
+                <td>All output files + analysis_summary</td>
+                <td>机器为主。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="section-title">Generated Outputs</h2>
+        <div class="outputs">
+          <div class="file"><strong>segments_*.txt</strong><small>Segmented transcript data</small></div>
+          <div class="file"><strong>incident_coding_coder*.txt</strong><small>Labels, comparisons, memos</small></div>
+          <div class="file"><strong>incident_reconciliation_coder*.txt</strong><small>Global label clusters and boundary cases</small></div>
+          <div class="file"><strong>category_comparisons_coder*.txt</strong><small>Comparative categories and verified quotes</small></div>
+          <div class="file"><strong>cca_memos_coder*.txt</strong><small>Analytic tensions and sampling leads</small></div>
+          <div class="file"><strong>cca_synthesis_coder*.txt</strong><small>Single-paragraph CCA synthesis</small></div>
+          <div class="file"><strong>integrated_*.txt</strong><small>Cross-coder patterns, categories, memos, summary</small></div>
+          <div class="file"><strong>cca_evaluation_coder*.txt</strong><small>Per-coder reflective audit</small></div>
+          <div class="file"><strong>integrated_evaluation.txt</strong><small>Cross-coder evaluation audit</small></div>
+          <div class="file"><strong>analysis_summary.txt</strong><small>Settings and corrected process counts</small></div>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="section-title">Paper Contribution Logic</h2>
+        <div class="note">
+          这套方法可以写成区别于 GT agent 的 CCA paper：同样数据集下，贡献不再是自动生成 grounded theory，而是展示 LLM 如何在 context-window 限制下维持 full-dataset constant comparison，并用 hybrid memory、global reconciliation 和 reflective evaluation 把比较过程变成可审计的方法学对象。
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

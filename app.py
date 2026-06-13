@@ -3,13 +3,15 @@ from __future__ import annotations
 import os
 import json
 import uuid
+import zipfile
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 from typing import List
 import threading
 import re
 
-from flask import Flask, render_template, request, redirect, url_for, send_from_directory, jsonify
+from flask import Flask, render_template, request, redirect, url_for, send_from_directory, jsonify, send_file
 import sys
 
 # Make imports work both as package and as top-level module (Render/Gunicorn)
@@ -291,6 +293,29 @@ def progress(run_id: str):
 def download(run_id: str, filename: str):
     base = Path(__file__).parent / config.OUTPUT_DIR / f"run_{run_id}"
     return send_from_directory(base, filename, as_attachment=True)
+
+
+@app.route("/download_zip/<run_id>")
+def download_zip(run_id: str):
+    base = Path(__file__).parent / config.OUTPUT_DIR / f"run_{run_id}"
+    if not base.exists() or not base.is_dir():
+        return jsonify({"error": "Run not found"}), 404
+
+    allowed_suffixes = {".txt", ".json"}
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for path in sorted(base.rglob("*")):
+            if not path.is_file() or path.suffix.lower() not in allowed_suffixes:
+                continue
+            rel = path.relative_to(base)
+            zf.write(path, arcname=str(Path(f"run_{run_id}") / rel))
+    buffer.seek(0)
+    return send_file(
+        buffer,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name=f"cca_results_run_{run_id}.zip",
+    )
 
 
 if __name__ == "__main__":

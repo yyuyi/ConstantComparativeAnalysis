@@ -1,5 +1,9 @@
 generated/
 debug/
+evaluation_generated/
+Results_CCA/
+Reference/
+.venv/
 __pycache__/
 *.pyc
 .DS_Store

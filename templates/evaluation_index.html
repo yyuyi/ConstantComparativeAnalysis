@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CCA Standalone Evaluation</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <main class="container">
+      <header>
+        <h1>CCA Standalone Evaluation</h1>
+        <p class="lede">Upload completed CCA outputs and generate a machine-filled HTML evaluation.</p>
+      </header>
+
+      {% if error %}
+      <section class="panel" style="border-color:#fecaca;background:#fff7f7;">
+        <h3>Upload Error</h3>
+        <p>{{ error }}</p>
+      </section>
+      {% endif %}
+
+      <form action="{{ url_for('evaluate') }}" method="post" enctype="multipart/form-data" class="grid">
+        <details class="panel" open>
+          <summary><span>Evaluation Inputs</span><span class="caret">▾</span></summary>
+          <div class="panel-content">
+            <div class="field">
+              <label for="openai_api_key">OpenAI API Key</label>
+              <input type="password" id="openai_api_key" name="openai_api_key" placeholder="sk-..." required />
+              <div class="help">Used only to generate the machine evaluation. It is not written into the output report.</div>
+            </div>
+            <div class="field">
+              <label for="cca_outputs">Completed CCA output</label>
+              <input type="file" id="cca_outputs" name="cca_outputs" accept=".zip,.txt,.json" multiple required />
+              <div class="help">Best option: upload one .zip of a completed CCA run, including segments_*.txt. The app parses nested zip folders and reads .txt/.json files automatically.</div>
+              <div class="help">If selecting files manually, include the files listed in the table below.</div>
+            </div>
+            <div class="field">
+              <label for="model">Model</label>
+              <select id="model" name="model">
+                {% for m in model_options %}
+                  <option value="{{ m }}" {% if m == default_model %}selected{% endif %}>{{ m }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+        </details>
+
+        <details class="panel" open>
+          <summary><span>Files Used by This Evaluation</span><span class="caret">▾</span></summary>
+          <div class="panel-content">
+            <p class="help">Zip upload is supported. The evaluator extracts .txt/.json files from the zip, ignores unsupported files, and ignores old built-in evaluation outputs such as cca_evaluation_*.txt, integrated_evaluation.txt, and human_theme_checklist.txt.</p>
+            <table>
+              <thead>
+                <tr>
+                  <th>File pattern</th>
+                  <th>Status</th>
+                  <th>Used to evaluate</th>
+                  <th>Criteria</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in file_requirements %}
+                <tr>
+                  <td><code>{{ item.file_pattern }}</code></td>
+                  <td>{{ item.required }}</td>
+                  <td>{{ item.used_for }}</td>
+                  <td>{{ item.criteria }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </details>
+
+        <details class="panel" open>
+          <summary><span>What This Evaluates</span><span class="caret">▾</span></summary>
+          <div class="panel-content">
+            <p class="help">This standalone evaluator does not require a human article, ground truth, or expected theme list.</p>
+            <p class="help">The machine section audits six CCA-specific criteria. Five interpretive criteria are LLM-scored using two criterion-specific calls: one process-quality packet for constant comparison, boundary/negative cases, and category differentiation; one synthesis/integration packet for memo-to-synthesis coherence and cross-coder divergence integration. Traceability and quote evidence is code-scored with segment/source-context checks, loose 95% quote-to-source matching, and quote artifact checks. Output completeness is checked separately as a deterministic file inventory.</p>
+            <p class="help">The HTML report contains machine evaluation only. Human review uses the separate Word template saved under the project Evaluation folder, not this web app output.</p>
+            <p class="help">Human theme/category alignment remains optional and should be completed separately by reviewers who have a codebook, expected themes, or want to create a human reference from the transcripts. The machine does not automatically extract or score those reference themes.</p>
+          </div>
+        </details>
+
+        <div class="panel" style="grid-column:1 / -1;display:flex;justify-content:flex-end;">
+          <button type="submit" class="btn">Generate Evaluation HTML</button>
+        </div>
+      </form>
+    </main>
+  </body>
+</html>
