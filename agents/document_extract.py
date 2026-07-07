@@ -138,7 +138,7 @@ def _extract_pdf(path: Path) -> Tuple[str, str, List[str]]:
     for method, text, method_warnings in candidates:
         if method == best_method:
             warnings.extend(method_warnings)
-        elif method_warnings and not text:
+        elif not best_text and method_warnings and not text:
             warnings.extend(method_warnings[:2])
     if not best_text:
         warnings.append(

@@ -74,6 +74,14 @@ def _log(run_dir: Path, msg: str) -> None:
         f.write(f"[{ts}] {msg}\n")
 
 
+def _write_error_result(run_dir: Path, message: str) -> None:
+    files = [f.name for f in sorted(run_dir.glob("*.txt"))]
+    (run_dir / "result.json").write_text(
+        json.dumps({"files": files, "error": message}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
 async def _run_sync_tasks(callables: List[Any], limit: int) -> Tuple[List[Any], List[Exception | None]]:
     """Run blocking callables concurrently with a semaphore limiting concurrency."""
     max_workers = max(1, int(limit) if isinstance(limit, int) else 1)
@@ -642,6 +650,9 @@ def run_job(run_dir: Path) -> None:
             (lambda segs=grp: _process_one_transcript(segs)) for grp in per_tx_segments
         ]
         tx_results, tx_errors = asyncio.run(_run_sync_tasks(callables_tx, open_coding_concurrency))
+        for idx, err in enumerate(tx_errors or [], start=1):
+            if err:
+                _log(run_dir, f"[{coder_id}] Warning: transcript incident coding task {idx} failed: {err}")
 
         incident_map: Dict[Tuple[str, int], Dict[str, Any]] = {}
         for res in (tx_results or []):
@@ -686,10 +697,16 @@ def run_job(run_dir: Path) -> None:
                 "reconciliation_file": f"incident_reconciliation_{coder_id}.txt" if reconciliation else "",
             },
         )
+        if not incident_records:
+            message = f"[{coder_id}] No incident records were generated; aborting run before category generation."
+            _log(run_dir, f"Error: {message}")
+            _write_error_result(run_dir, message)
+            return
 
         _log(run_dir, f"[{coder_id}] Building comparative categories...")
         cats: List[Dict[str, Any]] = []
-        for attempt in range(2):
+        category_attempts = 2
+        for attempt in range(1, category_attempts + 1):
             t0 = time.time()
             cats = run_category_comparison(
                 sdk=sdk,
@@ -705,7 +722,23 @@ def run_job(run_dir: Path) -> None:
             _log(run_dir, f"[{coder_id}] Category response in {time.time()-t0:.2f}s; categories={len(cats) if cats else 0}.")
             if cats:
                 break
-            _log(run_dir, f"[{coder_id}] Retrying category comparison (attempt {attempt + 2})...")
+            diag = sdk.diagnostics()
+            if diag.get("last_error"):
+                _log(run_dir, f"[{coder_id}] Category diagnostics: {diag.get('last_error')}")
+            if diag.get("last_raw"):
+                _log(run_dir, f"[{coder_id}] Category raw response preview: {diag.get('last_raw')}")
+            if attempt < category_attempts:
+                _log(run_dir, f"[{coder_id}] Retrying category comparison (attempt {attempt + 1})...")
+
+        if not cats:
+            write_json_txt(run_dir, f"category_comparisons_{coder_id}.txt", {"coder": coder_id, "comparative_categories": cats})
+            message = (
+                f"[{coder_id}] Category generation returned zero categories after {category_attempts} attempts. "
+                "Aborting run because quote evidence, memos, synthesis, and integration would not be auditable."
+            )
+            _log(run_dir, f"Error: {message}")
+            _write_error_result(run_dir, message)
+            return
 
         _ensure_category_boundary_cases(cats, incident_records)
 
@@ -756,6 +789,12 @@ def run_job(run_dir: Path) -> None:
             t0 = time.time()
             data = sdk.run_json(system, user, schema_hint=QUOTES_BATCH_SCHEMA, attempts=1, timeout_s=240.0)
             _log(run_dir, f"[{coder_id}] Quote batch response in {time.time()-t0:.2f}s.")
+            if not data.get("quotes_by_category"):
+                diag = sdk.diagnostics()
+                if diag.get("last_error"):
+                    _log(run_dir, f"[{coder_id}] Quote diagnostics: {diag.get('last_error')}")
+                if diag.get("last_raw"):
+                    _log(run_dir, f"[{coder_id}] Quote raw response preview: {diag.get('last_raw')}")
             by_cat = {
                 int(row.get("index", -1)): [str(q).strip() for q in (row.get("quotes") or []) if str(q).strip()]
                 for row in (data.get("quotes_by_category") or [])

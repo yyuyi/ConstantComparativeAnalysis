@@ -1,6 +1,7 @@
 generated/
 debug/
 evaluation_generated/
+_secrets/
 Results_CCA/
 Reference/
 .venv/

@@ -5,7 +5,7 @@ import re
 from collections import Counter
 from typing import Any, Dict, List, Optional
 
-SYNTH_INCIDENT_SCHEMA = "{\"incident_patterns\": [{\"label\": str, \"representative_segments\": [str], \"comparative_note\": str}]}"
+SYNTH_INCIDENT_SCHEMA = "{\"incident_patterns\": [{\"label\": str, \"representative_segments\": [str], \"comparative_note\": str, \"coder_convergence\": str, \"coder_divergence\": str, \"non_local_reconciliation\": str}]}"
 SYNTH_CATEGORY_SCHEMA = "{\"categories\": [{\"name\": str, \"synthesis_note\": str, \"combined_properties\": [str], \"supporting_segments\": [str], \"boundary_or_negative_cases\": [{\"segment_id\": str, \"case_summary\": str, \"category_implication\": str}], \"no_boundary_case_reason\": str, \"coder_convergence\": str, \"coder_divergence\": str, \"divergence_boundary_impact\": str}], \"granularity_note\": str}"
 SYNTH_MEMO_SCHEMA = "{\"memo_digest\": [{\"focus\": str, \"cross_coder_insight\": str, \"unresolved_tensions\": [str]}]}"
 SYNTH_SUMMARY_SCHEMA = "{\"comparative_summary\": str}"
@@ -84,12 +84,16 @@ def _cluster_label_rows(rows: List[Dict[str, Any]], *, threshold: float = 0.4) -
             cluster["_tokens"] |= tokens
             cluster["_labels"].append(label)
             cluster["_coders"].add(row.get("coder"))
+            cluster["_transcripts"].add(str(row.get("transcript") or ""))
             seg = _segment_ref(row)
             if seg not in cluster["representative_segments"]:
                 cluster["representative_segments"].append(seg)
             memo = str(row.get("memo") or "").strip()
             if memo and len(cluster["memo_samples"]) < 4:
                 cluster["memo_samples"].append(memo[:360])
+            comparison = str(row.get("comparison") or "").strip()
+            if comparison and len(cluster["comparison_samples"]) < 5:
+                cluster["comparison_samples"].append(comparison[:420])
             cluster["occurrence_count"] += 1
             continue
         clusters.append(
@@ -97,8 +101,10 @@ def _cluster_label_rows(rows: List[Dict[str, Any]], *, threshold: float = 0.4) -
                 "_tokens": set(tokens),
                 "_labels": [label],
                 "_coders": {row.get("coder")},
+                "_transcripts": {str(row.get("transcript") or "")},
                 "representative_segments": [_segment_ref(row)],
                 "memo_samples": [str(row.get("memo") or "").strip()[:360]] if row.get("memo") else [],
+                "comparison_samples": [str(row.get("comparison") or "").strip()[:420]] if row.get("comparison") else [],
                 "occurrence_count": 1,
             }
         )
@@ -113,12 +119,142 @@ def _cluster_label_rows(rows: List[Dict[str, Any]], *, threshold: float = 0.4) -
                 "member_labels": common_labels,
                 "representative_segments": cluster["representative_segments"][:12],
                 "coder_count": len({c for c in cluster["_coders"] if c}),
+                "transcript_count": len({t for t in cluster["_transcripts"] if t}),
                 "occurrence_count": cluster["occurrence_count"],
                 "memo_samples": cluster["memo_samples"][:4],
+                "comparison_samples": cluster["comparison_samples"][:5],
             }
         )
-    compact.sort(key=lambda item: (item.get("coder_count", 0), item.get("occurrence_count", 0)), reverse=True)
+    compact.sort(
+        key=lambda item: (
+            item.get("coder_count", 0),
+            item.get("transcript_count", 0),
+            item.get("occurrence_count", 0),
+        ),
+        reverse=True,
+    )
     return compact
+
+
+def _cluster_tokens(cluster: Dict[str, Any]) -> set[str]:
+    labels = [str(cluster.get("name_hint") or "")]
+    labels.extend(str(label) for label in (cluster.get("member_labels") or [])[:8])
+    return set().union(*(_label_tokens(label) for label in labels if label))
+
+
+def _merge_cluster_into_pattern(pattern: Dict[str, Any], cluster: Dict[str, Any]) -> None:
+    pattern["_tokens"] |= _cluster_tokens(cluster)
+    pattern["_member_labels"].extend(str(label) for label in (cluster.get("member_labels") or []) if label)
+    pattern["_coder_count"] = max(int(pattern.get("_coder_count") or 0), int(cluster.get("coder_count") or 0))
+    pattern["_occurrence_count"] = int(pattern.get("_occurrence_count") or 0) + int(cluster.get("occurrence_count") or 0)
+    pattern["_transcript_count"] = max(int(pattern.get("_transcript_count") or 0), int(cluster.get("transcript_count") or 0))
+    for seg in cluster.get("representative_segments") or []:
+        if seg not in pattern["representative_segments"]:
+            pattern["representative_segments"].append(seg)
+    for sample in cluster.get("comparison_samples") or []:
+        if sample and sample not in pattern["_comparison_samples"]:
+            pattern["_comparison_samples"].append(sample)
+    for sample in cluster.get("memo_samples") or []:
+        if sample and sample not in pattern["_memo_samples"]:
+            pattern["_memo_samples"].append(sample)
+
+
+def _best_pattern_idx(patterns: List[Dict[str, Any]], tokens: set[str]) -> tuple[int, float]:
+    best_idx = -1
+    best_score = 0.0
+    for idx, pattern in enumerate(patterns):
+        score = _jaccard(tokens, pattern.get("_tokens") or set())
+        if score > best_score:
+            best_idx = idx
+            best_score = score
+    return best_idx, best_score
+
+
+def _condense_clusters_for_llm(clusters: List[Dict[str, Any]], *, limit: int = 180) -> List[Dict[str, Any]]:
+    if len(clusters) <= limit:
+        return clusters
+    two_coder = [c for c in clusters if int(c.get("coder_count") or 0) > 1]
+    two_coder_ids = {id(c) for c in two_coder}
+    multi_transcript = [
+        c for c in clusters if int(c.get("transcript_count") or 0) > 1 and id(c) not in two_coder_ids
+    ]
+    selected_ids = two_coder_ids | {id(c) for c in multi_transcript}
+    remainder = [c for c in clusters if id(c) not in selected_ids]
+    selected = (two_coder + multi_transcript + remainder)[:limit]
+    return selected
+
+
+def _build_fallback_incident_patterns(
+    clusters: List[Dict[str, Any]],
+    *,
+    max_patterns: int = 40,
+    merge_threshold: float = 0.18,
+) -> List[Dict[str, Any]]:
+    patterns: List[Dict[str, Any]] = []
+    for cluster in clusters:
+        tokens = _cluster_tokens(cluster)
+        if not tokens:
+            continue
+        best_idx, best_score = _best_pattern_idx(patterns, tokens)
+        if best_idx >= 0 and (best_score >= merge_threshold or len(patterns) >= max_patterns):
+            _merge_cluster_into_pattern(patterns[best_idx], cluster)
+            continue
+        patterns.append(
+            {
+                "label": str(cluster.get("name_hint") or "").strip(),
+                "representative_segments": [],
+                "_tokens": set(tokens),
+                "_member_labels": [],
+                "_coder_count": 0,
+                "_occurrence_count": 0,
+                "_transcript_count": 0,
+                "_comparison_samples": [],
+                "_memo_samples": [],
+            }
+        )
+        _merge_cluster_into_pattern(patterns[-1], cluster)
+
+    finalized: List[Dict[str, Any]] = []
+    for pattern in patterns:
+        member_counts = Counter(pattern["_member_labels"])
+        common_labels = [label for label, _count in member_counts.most_common(10)]
+        comparison_samples = pattern["_comparison_samples"][:3]
+        memo_samples = pattern["_memo_samples"][:2]
+        coder_count = int(pattern.get("_coder_count") or 0)
+        occurrence_count = int(pattern.get("_occurrence_count") or 0)
+        transcript_count = int(pattern.get("_transcript_count") or 0)
+        convergence = (
+            f"Cross-coder convergence: {occurrence_count} coded occurrences across {coder_count} coder(s) "
+            f"and at least {transcript_count} transcript(s). Shared labels include: {', '.join(common_labels[:6])}."
+            if coder_count > 1
+            else f"Single-coder or weakly matched signal: {occurrence_count} coded occurrence(s), retained only as part of a broader integrated pattern."
+        )
+        divergence = (
+            "Divergence/boundary evidence: "
+            + " ".join(sample for sample in comparison_samples if sample)[:700]
+            if comparison_samples
+            else "Divergence/boundary evidence was not explicitly available for this grouped pattern."
+        )
+        reconciliation = (
+            "Non-local reconciliation: pattern groups labels across multiple transcript locations and preserves representative segment IDs for audit. "
+            + ("Memo evidence: " + " ".join(sample for sample in memo_samples if sample)[:500] if memo_samples else "")
+        )
+        comparative_note = " ".join(part for part in [convergence, divergence, reconciliation] if part).strip()
+        finalized.append(
+            {
+                "label": pattern["label"],
+                "representative_segments": pattern["representative_segments"][:12],
+                "comparative_note": comparative_note,
+                "coder_convergence": convergence,
+                "coder_divergence": divergence,
+                "non_local_reconciliation": reconciliation,
+                "occurrence_count": occurrence_count,
+                "coder_count": coder_count,
+                "member_labels": common_labels,
+            }
+        )
+    finalized.sort(key=lambda item: (item.get("coder_count", 0), item.get("occurrence_count", 0)), reverse=True)
+    return finalized[:max_patterns]
 
 
 def _dedupe_patterns(patterns: List[Dict[str, Any]], *, threshold: float = 0.62) -> List[Dict[str, Any]]:
@@ -170,45 +306,65 @@ def synthesize_incident_patterns(
     for coder_idx, coder_list in enumerate(per_coder_incidents, start=1):
         for note in coder_list:
             labels = note.get("labels") or []
+            comparison_bits: List[str] = []
+            for comparison in note.get("comparison_notes") or []:
+                if not isinstance(comparison, dict):
+                    continue
+                comparison_bits.extend(
+                    str(comparison.get(key) or "").strip()
+                    for key in ("focus", "similarities", "differences")
+                    if str(comparison.get(key) or "").strip()
+                )
+            comparison_text = " | ".join(comparison_bits[:6])
+            base_row = {
+                "coder": f"coder{coder_idx}",
+                "transcript": note.get("transcript"),
+                "segment_number": note.get("segment_number"),
+                "memo": note.get("analytic_memo", ""),
+                "comparison": comparison_text,
+            }
+            for cluster_label in note.get("label_clusters") or []:
+                flat.append(
+                    {
+                        **base_row,
+                        "label": str(cluster_label),
+                    }
+                )
             for label in labels:
                 flat.append(
                     {
-                        "coder": f"coder{coder_idx}",
+                        **base_row,
                         "label": str(label),
-                        "transcript": note.get("transcript"),
-                        "segment_number": note.get("segment_number"),
-                        "memo": note.get("analytic_memo", ""),
                     }
                 )
     clustered = _cluster_label_rows(flat)
+    clustered_for_llm = _condense_clusters_for_llm(clustered, limit=180)
     payload = {
         "analysis_mode": analysis_mode,
         "theoretical_framework": theoretical_framework if analysis_mode != "classic" else "",
-        "label_clusters": clustered,
+        "label_clusters": clustered_for_llm,
+        "cluster_inventory": {
+            "total_deterministic_clusters": len(clustered),
+            "clusters_sent_to_model": len(clustered_for_llm),
+            "selection_rule": "prioritize cross-coder, cross-transcript, and high-occurrence clusters to keep integration auditable on long datasets",
+        },
         "instructions": (
             "Integrate these deterministic label clusters into higher-level incident patterns. "
             "Merge clusters that are conceptually similar, keep representative segments, identify coder convergence/divergence, "
-            "and avoid returning one pattern per label. Prefer <= 60 integrated patterns unless the data clearly require more."
+            "and avoid returning one pattern per label. Prefer roughly 20-40 integrated patterns unless the data clearly require more. "
+            "Each pattern should explain incident-specific convergence, divergence or boundary shifts, and non-local reconciliation across transcripts."
         ),
         "schema": SYNTH_INCIDENT_SCHEMA,
     }
     user = json.dumps(payload, ensure_ascii=False)
     data = sdk.run_json(system, user, schema_hint=SYNTH_INCIDENT_SCHEMA, attempts=attempts, timeout_s=timeout_s)
     patterns = data.get("incident_patterns") or []
+    used_fallback = False
     if not patterns:
-        patterns = [
-            {
-                "label": cluster.get("name_hint", ""),
-                "representative_segments": cluster.get("representative_segments", []),
-                "comparative_note": (
-                    f"Deterministic fallback cluster with {cluster.get('occurrence_count', 0)} occurrences "
-                    f"across {cluster.get('coder_count', 0)} coder(s). Member labels: "
-                    + ", ".join(cluster.get("member_labels", [])[:8])
-                ),
-            }
-            for cluster in clustered
-        ]
-    patterns = _dedupe_patterns(patterns)
+        used_fallback = True
+        patterns = _build_fallback_incident_patterns(clustered, max_patterns=40)
+    if not used_fallback:
+        patterns = _dedupe_patterns(patterns)
     return {"incident_patterns": patterns}
 
 
@@ -224,7 +380,7 @@ def synthesize_category_matrix(
     system = (
         "Integrate comparative categories across coders. Merge similar categories, describe combined properties, and highlight how coders' comparisons align or differ. "
         "Prefer a mid-grained category set: usually 5-7 integrated categories when the coder outputs contain differentiated mechanisms. "
-        "Do not over-merge distinct patient-experience mechanisms, social determinants, education/health literacy, stigma/support, clinic workflow, and governance/data systems into a few macro buckets unless the evidence truly supports that merge. "
+        "Do not over-merge distinct mechanisms, stakeholder positions, contexts, conditions, actions, consequences, or boundary cases into a few macro buckets unless the evidence truly supports that merge. "
         "For every integrated category, include boundary_or_negative_cases or no_boundary_case_reason, and explain how coder divergence affects the category boundary. "
         "Return ONLY JSON per schema."
     )
@@ -242,6 +398,14 @@ def synthesize_category_matrix(
                     "supporting_quote_evidence": cat.get("supporting_quote_evidence", []),
                 }
             )
+    if not cats_in:
+        return {
+            "categories": [],
+            "granularity_note": (
+                "No coder-level comparative categories were available, so integrated categories were not generated. "
+                "This indicates an upstream category-generation failure rather than evidence for an empty category structure."
+            ),
+        }
     payload = {
         "analysis_mode": analysis_mode,
         "theoretical_framework": theoretical_framework if analysis_mode != "classic" else "",
